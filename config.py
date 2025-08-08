@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     """Main configuration settings"""
 
     # MQTT Configuration
-    mqtt_broker: str = "10.0.0.88"
+    mqtt_broker: str = "192.168.0.88"
     mqtt_port: int = 1883
     mqtt_username: Optional[str] = None
     mqtt_password: Optional[str] = None
@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     supported_classes: List[str] = ["person", "dog", "poop"]
 
     # System Configuration
-    device_name: str = "multi_camera_monitor"
+    device_name: str = "camera_monitor"
     log_file: str = "/var/log/camera_monitor.log"
     log_level: str = "INFO"
     rtsp_timeout: int = Field(default=10, ge=1, le=60)
@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, v: str) -> str:
+        """Validate log level"""
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         v_upper = v.upper()
         if v_upper not in valid_levels:
@@ -47,6 +48,7 @@ class Settings(BaseSettings):
     @field_validator("supported_classes")
     @classmethod
     def validate_classes(cls, v: List[str]) -> List[str]:
+        """Validate supported classes"""
         if not v or len(v) == 0:
             raise ValueError("supported_classes cannot be empty")
         return v
@@ -135,7 +137,7 @@ CAMERA_3_LOCATION=Living Room
 CAMERA_3_ENABLED=false
 """
 
-    with open(".env.example", "w") as f:
+    with open(".env.example", "w", encoding="utf-8") as f:
         f.write(example_content)
 
     print("Created .env.example file. Copy it to .env and modify with your settings.")

@@ -91,8 +91,8 @@ Examples:
         setup_logging(settings)
         logger = logging.getLogger(__name__)
         logger.info("Starting Multi-Camera YOLO Detection Monitor")
-        logger.info(f"Python version: {sys.version}")
-        logger.info(f"Working directory: {os.getcwd()}")
+        logger.info("Python version: %s", sys.version)
+        logger.info("Working directory: %s", os.getcwd())
 
     except Exception as e:
         print(f"❌ Configuration error: {e}")
@@ -101,10 +101,10 @@ Examples:
     # Initialize monitor
     try:
         monitor = MultiCameraMonitor(settings)
-        logger.info(f"Monitor initialized with {len(monitor.cameras)} cameras")
+        logger.info("Monitor initialized with %s cameras", len(monitor.cameras))
 
     except Exception as e:
-        logger.error(f"Failed to initialize monitor: {e}")
+        logger.error("Failed to initialize monitor: %s", e)
         return 1
 
     try:
@@ -128,7 +128,7 @@ Examples:
         elif args.validate:
             # Validate camera connections
             results = monitor.validate_all_cameras()
-            print(f"\n📹 Camera Validation Results:")
+            print("\n📹 Camera Validation Results:")
             for result in results:
                 status_icon = "✓" if result["valid"] else "✗"
                 print(f"  {status_icon} {result['camera']}")
@@ -189,12 +189,12 @@ Examples:
 
     except KeyboardInterrupt:
         logger.info("Interrupted by user")
-        print("\n⏹️  Operation cancelled")
+        print("\nOperation cancelled")
         return 0
 
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        print(f"❌ Unexpected error: {e}")
+        logger.error("Unexpected error: %s", e)
+        print("❌ Unexpected error: %s", e)
         return 1
 
     finally:
@@ -206,5 +206,4 @@ Examples:
 
 
 if __name__ == "__main__":
-    exit_code = main()
-    sys.exit(exit_code)
+    sys.exit(main())

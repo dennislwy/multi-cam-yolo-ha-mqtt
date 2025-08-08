@@ -40,13 +40,15 @@ class MQTTHandler:
 
             # Connect to broker
             logger.info(
-                f"Connecting to MQTT broker {self.settings.mqtt_broker}:{self.settings.mqtt_port}"
+                "Connecting to MQTT broker %s:%s",
+                self.settings.mqtt_broker,
+                self.settings.mqtt_port,
             )
             self.client.connect(self.settings.mqtt_broker, self.settings.mqtt_port, 60)
             self.client.loop_start()
 
         except Exception as e:
-            logger.error(f"Failed to setup MQTT: {e}")
+            logger.error("Failed to setup MQTT: %s", e)
             sys.exit(1)
 
     def on_connect(self, client, userdata, flags, rc):
@@ -54,7 +56,7 @@ class MQTTHandler:
         if rc == 0:
             logger.info("Connected to MQTT broker")
         else:
-            logger.error(f"Failed to connect to MQTT broker, return code {rc}")
+            logger.error("Failed to connect to MQTT broker, return code %s", rc)
 
     def on_disconnect(self, client, userdata, rc):
         """MQTT disconnection callback"""
@@ -62,7 +64,7 @@ class MQTTHandler:
 
     def on_publish(self, client, userdata, mid):
         """MQTT publish callback"""
-        logger.debug(f"Message {mid} published successfully")
+        logger.debug("Message %s published successfully", mid)
 
     def get_camera_topics(self, camera: dict) -> Dict[str, str]:
         """
@@ -122,16 +124,20 @@ class MQTTHandler:
             )
 
             if result.rc == mqtt.MQTT_ERR_SUCCESS:
-                logger.info(f"Published discovery config for camera: {camera['name']}")
+                logger.info("Published discovery config for camera: %s", camera["name"])
                 return True
             else:
                 logger.error(
-                    f"Failed to publish discovery config for {camera['name']}: {result.rc}"
+                    "Failed to publish discovery config for %s: %s",
+                    camera["name"],
+                    result.rc,
                 )
                 return False
 
         except Exception as e:
-            logger.error(f"Error publishing discovery config for {camera['name']}: {e}")
+            logger.error(
+                "Error publishing discovery config for %s: %s", camera["name"], e
+            )
             return False
 
     def publish_all_discovery_configs(self, cameras: List[dict]) -> int:
@@ -150,7 +156,7 @@ class MQTTHandler:
                 successful += 1
 
         logger.info(
-            f"Published discovery configs: {successful}/{len(cameras)} successful"
+            "Published discovery configs: %s/%s successful", successful, len(cameras)
         )
         return successful
 
@@ -174,16 +180,16 @@ class MQTTHandler:
             result = self.client.publish(topics["state_topic"], payload, qos=1)
 
             if result.rc == mqtt.MQTT_ERR_SUCCESS:
-                logger.debug(f"Detection results published for {camera['name']}")
+                logger.debug("Detection results published for %s", camera["name"])
                 return True
             else:
                 logger.error(
-                    f"Failed to publish to MQTT for {camera['name']}: {result.rc}"
+                    "Failed to publish to MQTT for %s: %s", camera["name"], result.rc
                 )
                 return False
 
         except Exception as e:
-            logger.error(f"Error publishing to MQTT for {camera['name']}: {e}")
+            logger.error("Error publishing to MQTT for %s: %s", camera["name"], e)
             return False
 
     def test_connection(self) -> bool:

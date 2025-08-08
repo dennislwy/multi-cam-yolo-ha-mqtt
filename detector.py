@@ -26,11 +26,11 @@ class YOLODetector:
     def setup_model(self):
         """Initialize YOLO model"""
         try:
-            logger.info(f"Loading YOLO model from {self.settings.yolo_model_path}")
+            logger.info("Loading YOLO model from %s", self.settings.yolo_model_path)
             self.model = YOLO(self.settings.yolo_model_path)
             logger.info("YOLO model loaded successfully")
         except Exception as e:
-            logger.error(f"Failed to load YOLO model: {e}")
+            logger.error("Failed to load YOLO model: %s", e)
             sys.exit(1)
 
     def detect_objects(
@@ -47,7 +47,7 @@ class YOLODetector:
             Detection results dictionary or None if failed
         """
         try:
-            logger.debug(f"Running detection for {camera['name']}")
+            logger.debug("Running detection for %s", camera["name"])
 
             # Run inference optimized for Raspberry Pi 4
             results = self.model(
@@ -105,12 +105,12 @@ class YOLODetector:
                     summary.append(f"{count} {class_name}{'s' if count > 1 else ''}")
 
             summary_text = ", ".join(summary) if summary else "no objects"
-            logger.info(f"Detection results for {camera['name']}: {summary_text}")
+            logger.info("Detection results for %s: %s", camera["name"], summary_text)
 
             return detections
 
         except Exception as e:
-            logger.error(f"Error during object detection for {camera['name']}: {e}")
+            logger.error("Error during object detection for %s: %s", camera["name"], e)
             return None
 
     def get_model_info(self) -> Dict[str, Any]:
@@ -150,7 +150,7 @@ class YOLODetector:
         ]
 
         if unsupported:
-            logger.warning(f"Unsupported classes in model: {unsupported}")
-            logger.info(f"Available model classes: {model_classes}")
+            logger.warning("Unsupported classes in model: %s", unsupported)
+            logger.info("Available model classes: %s", model_classes)
 
         return unsupported

@@ -43,13 +43,13 @@ class MultiCameraMonitor:
         unsupported_classes = self.detector.validate_model_classes()
         if unsupported_classes:
             logger.warning(
-                f"Model doesn't support these classes: {unsupported_classes}"
+                "Model doesn't support these classes: %s", unsupported_classes
             )
 
         # Log model info
         model_info = self.detector.get_model_info()
-        logger.info(f"Model loaded: {model_info.get('model_path', 'Unknown')}")
-        logger.info(f"Supported classes: {model_info.get('supported_classes', [])}")
+        logger.info("Model loaded: %s", model_info.get("model_path", "Unknown"))
+        logger.info("Supported classes: %s", model_info.get("supported_classes", []))
 
     def setup_homeassistant_discovery(self) -> bool:
         """
@@ -72,13 +72,13 @@ class MultiCameraMonitor:
         Returns:
             True if successful, False otherwise
         """
-        logger.debug(f"Starting detection cycle for {camera['name']}")
+        logger.debug("Starting detection cycle for %s", camera["name"])
 
         # Capture frame
         frame = self.camera_handler.capture_frame_from_rtsp(camera)
         if frame is None:
             logger.warning(
-                f"Failed to capture frame from {camera['name']}, skipping detection"
+                "Failed to capture frame from %s, skipping detection", camera["name"]
             )
             return False
 
@@ -86,17 +86,17 @@ class MultiCameraMonitor:
         detections = self.detector.detect_objects(frame, camera)
         if detections is None:
             logger.warning(
-                f"Detection failed for {camera['name']}, skipping MQTT publish"
+                "Detection failed for %s, skipping MQTT publish", camera["name"]
             )
             return False
 
         # Publish results
         success = self.mqtt_handler.publish_detection_results(detections, camera)
         if not success:
-            logger.warning(f"Failed to publish results for {camera['name']}")
+            logger.warning("Failed to publish results for %s", camera["name"])
             return False
 
-        logger.debug(f"Detection cycle completed for {camera['name']}")
+        logger.debug("Detection cycle completed for %s", camera["name"])
         return True
 
     def run_all_cameras_detection_cycle(self) -> bool:
@@ -120,11 +120,14 @@ class MultiCameraMonitor:
                 time.sleep(1)
 
             except Exception as e:
-                logger.error(f"Unexpected error processing {camera['name']}: {e}")
+                logger.error("Unexpected error processing %s: %s", camera["name"], e)
 
         elapsed_time = time.time() - start_time
         logger.info(
-            f"Detection cycle completed: {successful_cameras}/{len(self.cameras)} cameras successful in {elapsed_time:.1f}s"
+            "Detection cycle completed: %s/%s cameras successful in %.1fs",
+            successful_cameras,
+            len(self.cameras),
+            elapsed_time,
         )
 
         return successful_cameras > 0
@@ -144,10 +147,10 @@ class MultiCameraMonitor:
             None,
         )
         if not camera:
-            logger.error(f"Camera '{camera_name}' not found")
+            logger.error("Camera '%s' not found", camera_name)
             return False
 
-        logger.info(f"Running single detection test for {camera['name']}")
+        logger.info("Running single detection test for %s", camera["name"])
         return self.run_camera_detection_cycle(camera)
 
     def validate_all_cameras(self) -> List[dict]:
@@ -172,7 +175,10 @@ class MultiCameraMonitor:
 
             status = "✓" if is_valid else "✗"
             logger.info(
-                f"{status} {camera['name']}: {'Connected' if is_valid else 'Failed'}"
+                "%s %s: %s",
+                status,
+                camera["name"],
+                "Connected" if is_valid else "Failed",
             )
 
         return results
