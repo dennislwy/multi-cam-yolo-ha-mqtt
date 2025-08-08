@@ -1,0 +1,204 @@
+"""
+Main monitor class that orchestrates camera detection and MQTT publishing
+"""
+
+import logging
+import time
+from typing import List, Optional
+
+from camera import CameraHandler
+from config import Settings, load_camera_config
+from detector import YOLODetector
+from mqtt_client import MQTTHandler
+
+logger = logging.getLogger(__name__)
+
+
+class MultiCameraMonitor:
+    """Main monitor class that coordinates all components"""
+
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        self.cameras = load_camera_config(settings)
+
+        if not self.cameras:
+            logger.error("No cameras configured. Exiting.")
+            raise ValueError("No cameras configured")
+
+        # Initialize components
+        self.camera_handler = CameraHandler(settings)
+        self.detector = YOLODetector(settings)
+        self.mqtt_handler = MQTTHandler(settings)
+
+        # Validate setup
+        self._validate_setup()
+
+    def _validate_setup(self):
+        """Validate the monitor setup"""
+        # Test MQTT connection
+        if not self.mqtt_handler.test_connection():
+            logger.warning("MQTT connection test failed")
+
+        # Validate YOLO model classes
+        unsupported_classes = self.detector.validate_model_classes()
+        if unsupported_classes:
+            logger.warning(
+                f"Model doesn't support these classes: {unsupported_classes}"
+            )
+
+        # Log model info
+        model_info = self.detector.get_model_info()
+        logger.info(f"Model loaded: {model_info.get('model_path', 'Unknown')}")
+        logger.info(f"Supported classes: {model_info.get('supported_classes', [])}")
+
+    def setup_homeassistant_discovery(self) -> bool:
+        """
+        Setup Home Assistant discovery for all cameras
+
+        Returns:
+            True if all discoveries were published successfully
+        """
+        logger.info("Setting up Home Assistant discovery")
+        successful = self.mqtt_handler.publish_all_discovery_configs(self.cameras)
+        return successful == len(self.cameras)
+
+    def run_camera_detection_cycle(self, camera: dict) -> bool:
+        """
+        Run one complete detection cycle for a specific camera
+
+        Args:
+            camera: Camera configuration dictionary
+
+        Returns:
+            True if successful, False otherwise
+        """
+        logger.debug(f"Starting detection cycle for {camera['name']}")
+
+        # Capture frame
+        frame = self.camera_handler.capture_frame_from_rtsp(camera)
+        if frame is None:
+            logger.warning(
+                f"Failed to capture frame from {camera['name']}, skipping detection"
+            )
+            return False
+
+        # Run detection
+        detections = self.detector.detect_objects(frame, camera)
+        if detections is None:
+            logger.warning(
+                f"Detection failed for {camera['name']}, skipping MQTT publish"
+            )
+            return False
+
+        # Publish results
+        success = self.mqtt_handler.publish_detection_results(detections, camera)
+        if not success:
+            logger.warning(f"Failed to publish results for {camera['name']}")
+            return False
+
+        logger.debug(f"Detection cycle completed for {camera['name']}")
+        return True
+
+    def run_all_cameras_detection_cycle(self) -> bool:
+        """
+        Run detection cycle for all cameras
+
+        Returns:
+            True if at least one camera was processed successfully
+        """
+        logger.info("Starting detection cycle for all cameras")
+        start_time = time.time()
+
+        successful_cameras = 0
+
+        for camera in self.cameras:
+            try:
+                if self.run_camera_detection_cycle(camera):
+                    successful_cameras += 1
+
+                # Small delay between cameras to avoid overwhelming the system
+                time.sleep(1)
+
+            except Exception as e:
+                logger.error(f"Unexpected error processing {camera['name']}: {e}")
+
+        elapsed_time = time.time() - start_time
+        logger.info(
+            f"Detection cycle completed: {successful_cameras}/{len(self.cameras)} cameras successful in {elapsed_time:.1f}s"
+        )
+
+        return successful_cameras > 0
+
+    def run_single_camera_test(self, camera_name: str) -> bool:
+        """
+        Run detection test for a specific camera by name
+
+        Args:
+            camera_name: Name of the camera to test
+
+        Returns:
+            True if successful, False otherwise
+        """
+        camera = next(
+            (cam for cam in self.cameras if cam["name"].lower() == camera_name.lower()),
+            None,
+        )
+        if not camera:
+            logger.error(f"Camera '{camera_name}' not found")
+            return False
+
+        logger.info(f"Running single detection test for {camera['name']}")
+        return self.run_camera_detection_cycle(camera)
+
+    def validate_all_cameras(self) -> List[dict]:
+        """
+        Validate connections to all cameras
+
+        Returns:
+            List of camera validation results
+        """
+        logger.info("Validating camera connections...")
+        results = []
+
+        for camera in self.cameras:
+            is_valid = self.camera_handler.validate_camera_connection(camera)
+            results.append(
+                {
+                    "camera": camera["name"],
+                    "valid": is_valid,
+                    "rtsp_url": camera["rtsp_url"],
+                }
+            )
+
+            status = "✓" if is_valid else "✗"
+            logger.info(
+                f"{status} {camera['name']}: {'Connected' if is_valid else 'Failed'}"
+            )
+
+        return results
+
+    def get_system_status(self) -> dict:
+        """
+        Get system status information
+
+        Returns:
+            Dictionary containing system status
+        """
+        return {
+            "cameras_configured": len(self.cameras),
+            "camera_names": [cam["name"] for cam in self.cameras],
+            "mqtt_connected": self.mqtt_handler.test_connection(),
+            "model_info": self.detector.get_model_info(),
+            "settings": {
+                "confidence_threshold": self.settings.confidence_threshold,
+                "input_size": self.settings.input_size,
+                "rtsp_timeout": self.settings.rtsp_timeout,
+                "supported_classes": self.settings.supported_classes,
+            },
+        }
+
+    def cleanup(self):
+        """Cleanup all resources"""
+        logger.info("Cleaning up resources...")
+        self.mqtt_handler.cleanup()
+        logger.info("Cleanup completed")
