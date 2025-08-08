@@ -11,6 +11,8 @@ import sys
 import time
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 # Add the project root to Python path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
@@ -87,6 +89,7 @@ Examples:
 
     # Load settings and setup logging
     try:
+        load_dotenv()
         settings = get_settings()
         setup_logging(settings)
         logger = logging.getLogger(__name__)

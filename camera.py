@@ -34,9 +34,11 @@ class CameraHandler:
 
             # Create new capture object for each frame to avoid connection issues
             cap = cv2.VideoCapture(camera["rtsp_url"])
-            cap.set(
-                cv2.CAP_PROP_TIMEOUT, self.settings.rtsp_timeout * 1000
-            )  # Convert to milliseconds
+
+            # Set timeout if available (OpenCV 4.2+)
+            if hasattr(cv2, "CAP_PROP_TIMEOUT"):
+                cap.set(cv2.CAP_PROP_TIMEOUT, self.settings.rtsp_timeout * 1000)
+
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer to get latest frame
 
             if not cap.isOpened():
@@ -70,7 +72,10 @@ class CameraHandler:
         """
         try:
             cap = cv2.VideoCapture(camera["rtsp_url"])
-            cap.set(cv2.CAP_PROP_TIMEOUT, 5000)  # 5 second timeout for testing
+
+            # Set timeout if available
+            if hasattr(cv2, "CAP_PROP_TIMEOUT"):
+                cap.set(cv2.CAP_PROP_TIMEOUT, 5000)  # 5 second timeout for testing
 
             if not cap.isOpened():
                 cap.release()

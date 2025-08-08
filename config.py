@@ -53,7 +53,7 @@ class Settings(BaseSettings):
             raise ValueError("supported_classes cannot be empty")
         return v
 
-    model_config = {"env_file": ".env", "case_sensitive": False}
+    model_config = {"env_file": ".env", "case_sensitive": False, "extra": "ignore"}
 
 
 def load_camera_config(settings: Settings) -> List[dict]:
@@ -97,7 +97,7 @@ def create_example_env_file():
     example_content = """# Multi-Camera YOLO Detection Configuration
 
 # MQTT Configuration
-MQTT_BROKER=10.0.0.88
+MQTT_BROKER=192.168.0.88
 MQTT_PORT=1883
 MQTT_USERNAME=
 MQTT_PASSWORD=
@@ -110,7 +110,7 @@ CONFIDENCE_THRESHOLD=0.6
 SUPPORTED_CLASSES=person,dog,poop
 
 # System Configuration
-DEVICE_NAME=multi_camera_monitor
+DEVICE_NAME=camera_monitor
 LOG_FILE=/var/log/camera_monitor.log
 LOG_LEVEL=INFO
 RTSP_TIMEOUT=10

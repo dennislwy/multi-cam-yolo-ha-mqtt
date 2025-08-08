@@ -53,7 +53,7 @@ Edit `.env` file with your settings:
 
 ```bash
 # MQTT Configuration
-MQTT_BROKER=10.0.0.88
+MQTT_BROKER=192.168.0.88
 MQTT_PORT=1883
 MQTT_USERNAME=your_username
 MQTT_PASSWORD=your_password
@@ -173,7 +173,7 @@ Each camera automatically appears as a separate sensor in Home Assistant:
 
 | Variable               | Default           | Description                              |
 | ---------------------- | ----------------- | ---------------------------------------- |
-| `MQTT_BROKER`          | `10.0.0.88`       | MQTT broker IP address                   |
+| `MQTT_BROKER`          | `192.168.0.88`    | MQTT broker IP address                   |
 | `MQTT_PORT`            | `1883`            | MQTT broker port                         |
 | `YOLO_MODEL_PATH`      | `yolov8n.pt`      | Path to YOLO model file                  |
 | `CONFIDENCE_THRESHOLD` | `0.6`             | Detection confidence threshold (0.1-1.0) |
