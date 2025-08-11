@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     log_file: str = "/var/log/camera_monitor.log"
     log_level: str = "INFO"
     rtsp_timeout: int = Field(default=10, ge=1, le=60)
+    cycle_delay: int = Field(default=60, ge=1, le=3600)
 
     # Performance Configuration
     max_concurrent_cameras: int = Field(default=4, ge=1, le=8)
@@ -120,6 +121,7 @@ DEVICE_NAME=camera_monitor
 LOG_FILE=/var/log/camera_monitor.log
 LOG_LEVEL=INFO
 RTSP_TIMEOUT=10
+CYCLE_DELAY=60
 
 # Performance Configuration
 MAX_CONCURRENT_CAMERAS=4

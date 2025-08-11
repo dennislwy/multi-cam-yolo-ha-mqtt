@@ -179,7 +179,7 @@ Examples:
             try:
                 while True:
                     monitor.run_all_cameras_detection_cycle()
-                    time.sleep(60)  # Wait 1 minute between cycles
+                    time.sleep(settings.cycle_delay)  # Use configurable delay
             except KeyboardInterrupt:
                 logger.info("Continuous monitoring stopped by user")
                 print("\n⏹️  Monitoring stopped")
