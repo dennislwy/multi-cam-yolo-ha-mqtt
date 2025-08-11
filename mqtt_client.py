@@ -76,8 +76,8 @@ class MQTTHandler:
         Returns:
             Dictionary containing topic information
         """
-        camera_id = f"camera_{camera['id']}"
-        unique_id = f"{self.settings.device_name}_{camera_id}_obj_detection"
+        # camera_id = f"camera_{camera['id']}"
+        unique_id = f"{self.settings.device_name}_{camera['id']}"
         sensor_topic = f"{self.settings.discovery_prefix}/sensor/{unique_id}"
 
         return {
@@ -100,7 +100,7 @@ class MQTTHandler:
             topics = self.get_camera_topics(camera)
 
             config = {
-                "name": f"{camera['name']} Object Detection",
+                "name": "Detection",
                 "unique_id": topics["unique_id"],
                 "state_topic": topics["state_topic"],
                 "value_template": "{{ value_json.total_objects }}",
@@ -108,7 +108,7 @@ class MQTTHandler:
                 "json_attributes_template": "{{ value_json | tojson }}",
                 "device": {
                     "identifiers": [f"{self.settings.device_name}_{camera['id']}"],
-                    "name": f"{camera['name']} Monitor",
+                    "name": f"{camera['name']} YOLO",
                     "model": "YOLO Object Detection",
                     "manufacturer": "Custom",
                 },

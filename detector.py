@@ -4,6 +4,7 @@ YOLO object detection operations
 
 import logging
 import sys
+import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -47,6 +48,7 @@ class YOLODetector:
             Detection results dictionary or None if failed
         """
         try:
+            start_time = time.time()
             logger.debug("Running detection for %s", camera["name"])
 
             # Run inference optimized for Raspberry Pi 4
@@ -58,6 +60,8 @@ class YOLODetector:
                 device="cpu",
                 half=False,
             )
+
+            detection_time = time.time() - start_time
 
             # Parse results
             detections = {
@@ -105,12 +109,23 @@ class YOLODetector:
                     summary.append(f"{count} {class_name}{'s' if count > 1 else ''}")
 
             summary_text = ", ".join(summary) if summary else "no objects"
-            logger.info("Detection results for %s: %s", camera["name"], summary_text)
+            logger.info(
+                "Detection completed for %s in %.2fs: %s",
+                camera["name"],
+                detection_time,
+                summary_text,
+            )
 
             return detections
 
         except Exception as e:
-            logger.error("Error during object detection for %s: %s", camera["name"], e)
+            detection_time = time.time() - start_time
+            logger.error(
+                "Error during object detection for %s after %.2fs: %s",
+                camera["name"],
+                detection_time,
+                e,
+            )
             return None
 
     def get_model_info(self) -> Dict[str, Any]:

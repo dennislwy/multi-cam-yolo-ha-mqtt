@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     yolo_model_path: str = "yolov8n.pt"
     input_size: int = 320
     confidence_threshold: float = Field(default=0.6, ge=0.1, le=1.0)
-    supported_classes: List[str] = ["person", "dog", "poop"]
+    supported_classes: List[str] = ["person", "dog", "poop", "baby"]
 
     # System Configuration
     device_name: str = "camera_monitor"

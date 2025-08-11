@@ -3,6 +3,7 @@ Camera operations for RTSP stream handling
 """
 
 import logging
+import time
 from typing import Optional
 
 import cv2
@@ -30,6 +31,7 @@ class CameraHandler:
             Captured frame as numpy array or None if failed
         """
         try:
+            start_time = time.time()
             logger.debug("Capturing frame from %s", camera["name"])
 
             # Create new capture object for each frame to avoid connection issues
@@ -49,15 +51,31 @@ class CameraHandler:
             ret, frame = cap.read()
             cap.release()
 
+            capture_time = time.time() - start_time
+
             if not ret:
-                logger.error("Failed to capture frame from %s", camera["name"])
+                logger.error(
+                    "Failed to capture frame from %s after %.2fs",
+                    camera["name"],
+                    capture_time,
+                )
                 return None
 
-            logger.debug("Frame captured successfully from %s", camera["name"])
+            logger.info(
+                "Frame captured successfully from %s in %.2fs",
+                camera["name"],
+                capture_time,
+            )
             return frame
 
         except Exception as e:
-            logger.error("Error capturing frame from %s: %s", camera["name"], e)
+            capture_time = time.time() - start_time
+            logger.error(
+                "Error capturing frame from %s after %.2fs: %s",
+                camera["name"],
+                capture_time,
+                e,
+            )
             return None
 
     def validate_camera_connection(self, camera: dict) -> bool:
