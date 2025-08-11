@@ -192,6 +192,19 @@ class MQTTHandler:
             logger.error("Error publishing to MQTT for %s: %s", camera["name"], e)
             return False
 
+    def publish_detection(self, detections: Dict[str, Any], camera: dict) -> bool:
+        """
+        Alias for publish_detection_results for backward compatibility
+
+        Args:
+            detections: Detection results dictionary
+            camera: Camera configuration dictionary
+
+        Returns:
+            True if successful, False otherwise
+        """
+        return self.publish_detection_results(detections, camera)
+
     def test_connection(self) -> bool:
         """
         Test MQTT connection

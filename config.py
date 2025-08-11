@@ -145,7 +145,6 @@ CAMERA_2_ENABLED=true
 # Camera 3
 CAMERA_3_NAME=Living Room
 CAMERA_3_RTSP_URL=rtsp://administrator:password@192.168.0.7:554/stream1
-CAMERA_3_LOCATION=Living Room
 CAMERA_3_ENABLED=false
 """
 

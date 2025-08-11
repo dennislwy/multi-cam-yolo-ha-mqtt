@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional
 
 from camera import CameraHandler
-from config import Settings
+from config import Settings, load_camera_config
 from detector import YOLODetector
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,7 @@ class MultiCameraProcessor:
         self.camera_handler = CameraHandler(settings)
         self.detector = YOLODetector(settings)
         self._lock = threading.Lock()
+        self.cameras = load_camera_config(settings)
 
     def process_camera_worker(self, camera: dict) -> Optional[Dict[str, Any]]:
         """
@@ -59,13 +60,11 @@ class MultiCameraProcessor:
         results = []
 
         # Determine optimal number of workers
-        max_workers = min(
-            4, len(self.settings.cameras), self.settings.max_concurrent_cameras
-        )
+        max_workers = min(4, len(self.cameras), self.settings.max_concurrent_cameras)
 
         logger.info(
             "Processing %d cameras with %d workers",
-            len(self.settings.cameras),
+            len(self.cameras),
             max_workers,
         )
 
@@ -73,7 +72,7 @@ class MultiCameraProcessor:
             # Submit all camera processing tasks
             future_to_camera = {
                 executor.submit(self.process_camera_worker, camera): camera
-                for camera in self.settings.cameras
+                for camera in self.cameras
             }
 
             # Collect results as they complete
@@ -92,9 +91,9 @@ class MultiCameraProcessor:
         total_time = time.time() - start_time
         logger.info(
             "Completed processing %d cameras in %.2fs (avg %.2fs per camera)",
-            len(self.settings.cameras),
+            len(self.cameras),
             total_time,
-            total_time / len(self.settings.cameras) if self.settings.cameras else 0,
+            total_time / len(self.cameras) if self.cameras else 0,
         )
 
         return results
@@ -120,12 +119,12 @@ class MultiCameraProcessor:
         """
         results = {}
 
-        with ThreadPoolExecutor(max_workers=len(self.settings.cameras)) as executor:
+        with ThreadPoolExecutor(max_workers=len(self.cameras)) as executor:
             future_to_camera = {
                 executor.submit(
                     self.camera_handler.validate_camera_connection, camera
                 ): camera
-                for camera in self.settings.cameras
+                for camera in self.cameras
             }
 
             for future in as_completed(future_to_camera, timeout=30):

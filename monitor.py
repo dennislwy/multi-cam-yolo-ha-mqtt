@@ -126,12 +126,29 @@ class MultiCameraMonitor:
 
                 for result in results:
                     if result:
-                        # Publish to MQTT
-                        if self.mqtt_handler.publish_detection(result):
-                            successful_cameras += 1
+                        # Find the camera config for this result
+                        camera = next(
+                            (
+                                cam
+                                for cam in self.cameras
+                                if cam["id"] == result.get("camera_id")
+                            ),
+                            None,
+                        )
+                        if camera:
+                            # Publish to MQTT
+                            if self.mqtt_handler.publish_detection_results(
+                                result, camera
+                            ):
+                                successful_cameras += 1
+                            else:
+                                logger.warning(
+                                    "Failed to publish detection for %s",
+                                    result.get("camera_name", "unknown"),
+                                )
                         else:
                             logger.warning(
-                                "Failed to publish detection for %s",
+                                "Camera config not found for result: %s",
                                 result.get("camera_name", "unknown"),
                             )
 
