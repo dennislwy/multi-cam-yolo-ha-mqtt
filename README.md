@@ -96,9 +96,8 @@ python main.py --test --camera "Front Door"
 # Setup Home Assistant discovery
 python main.py --setup-ha
 
-# Add to crontab for every minute execution
-crontab -e
-# Add: * * * * * cd /path/to/project && python main.py
+# Create systemd service for continuous monitoring
+sudo nano /etc/systemd/system/camera-monitor.service
 ```
 
 ## 📋 Usage Examples
@@ -106,7 +105,7 @@ crontab -e
 ### Command Line Options
 
 ```bash
-# Basic usage (for cron jobs)
+# Basic usage (single detection cycle)
 python main.py
 
 # Testing and validation
@@ -115,7 +114,7 @@ python main.py --test --camera "Front Door"  # Test specific camera
 python main.py --validate               # Check camera connections
 python main.py --status                 # Show system status
 
-# Continuous monitoring (for debugging)
+# Continuous monitoring (for debugging/manual)
 python main.py --continuous
 
 # Setup and configuration
@@ -123,62 +122,107 @@ python main.py --create-env             # Create example .env
 python main.py --setup-ha               # Setup HA discovery only
 ```
 
-### Cron Job Setup
+### Systemd Service Setup (Recommended)
 
-For automated monitoring every minute:
+For continuous monitoring as a system service:
+
+```bash
+# Create service file
+sudo nano /etc/systemd/system/camera-monitor.service
+```
+
+Add the following content:
+
+```ini
+[Unit]
+Description=Multi-Camera YOLO Object Detection Monitor
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/multi-cam-yolo-ha-mqtt
+ExecStart=/usr/bin/python3 /home/pi/multi-cam-yolo-ha-mqtt/main.py --continuous
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+# Environment variables (optional - can also use .env file)
+Environment=PYTHONPATH=/home/pi/multi-cam-yolo-ha-mqtt
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start the service:
+
+```bash
+# Reload systemd configuration
+sudo systemctl daemon-reload
+
+# Enable service to start on boot
+sudo systemctl enable camera-monitor.service
+
+# Start the service
+sudo systemctl start camera-monitor.service
+
+# Check service status
+sudo systemctl status camera-monitor.service
+
+# View logs
+sudo journalctl -u camera-monitor.service -f
+```
+
+### Alternative: Cron Job Setup (Single Runs)
+
+For periodic detection runs instead of continuous monitoring:
 
 ```bash
 # Edit crontab
 crontab -e
 
-# Add this line
+# Add this line for every minute detection
 * * * * * cd /home/pi/multi-cam-yolo-ha-mqtt && /usr/bin/python3 main.py >> /var/log/camera_monitor_cron.log 2>&1
+
+# Or every 5 minutes
+*/5 * * * * cd /home/pi/multi-cam-yolo-ha-mqtt && /usr/bin/python3 main.py >> /var/log/camera_monitor_cron.log 2>&1
 ```
 
-## 🏠 Home Assistant Integration
+### Service Management Commands
 
-Each camera automatically appears as a separate sensor in Home Assistant:
+```bash
+# Service control
+sudo systemctl start camera-monitor     # Start service
+sudo systemctl stop camera-monitor      # Stop service
+sudo systemctl restart camera-monitor   # Restart service
+sudo systemctl status camera-monitor    # Check status
 
-- **Sensor Name**: `{Camera Name} Object Detection`
-- **State**: Total number of detected objects
-- **Attributes**: Individual detection details, confidence scores, bounding boxes
-- **Device**: Each camera gets its own device entry
-- **Area**: Uses `CAMERA_X_LOCATION` for suggested area assignment
+# Logs and monitoring
+sudo journalctl -u camera-monitor -f    # Follow logs
+sudo journalctl -u camera-monitor --since "1 hour ago"  # Recent logs
+sudo journalctl -u camera-monitor --since today         # Today's logs
 
-### Example MQTT Payload
-
-```json
-{
-  "camera_id": 1,
-  "camera_name": "Front Door",
-  "location": "Front Entrance",
-  "timestamp": "2025-01-15T10:30:00.123456",
-  "total_objects": 2,
-  "person": 2,
-  "dog": 0,
-  "poop": 0,
-  "detections": [
-    {
-      "class": "person",
-      "confidence": 0.85,
-      "bbox": [100.5, 200.3, 150.7, 300.1]
-    }
-  ]
-}
+# Disable service
+sudo systemctl disable camera-monitor   # Disable auto-start
+sudo systemctl mask camera-monitor      # Completely disable
 ```
 
 ## ⚙️ Configuration Reference
 
 ### Core Settings
 
-| Variable               | Default           | Description                              |
-| ---------------------- | ----------------- | ---------------------------------------- |
-| `MQTT_BROKER`          | `192.168.0.88`    | MQTT broker IP address                   |
-| `MQTT_PORT`            | `1883`            | MQTT broker port                         |
-| `YOLO_MODEL_PATH`      | `yolov8n.pt`      | Path to YOLO model file                  |
-| `CONFIDENCE_THRESHOLD` | `0.6`             | Detection confidence threshold (0.1-1.0) |
-| `INPUT_SIZE`           | `320`             | YOLO input image size (smaller = faster) |
-| `SUPPORTED_CLASSES`    | `person,dog,poop` | Comma-separated object classes           |
+| Variable               | Default           | Description                                        |
+| ---------------------- | ----------------- | -------------------------------------------------- |
+| `MQTT_BROKER`          | `192.168.0.88`    | MQTT broker IP address                             |
+| `MQTT_PORT`            | `1883`            | MQTT broker port                                   |
+| `YOLO_MODEL_PATH`      | `yolov8n.pt`      | Path to YOLO model file                            |
+| `CONFIDENCE_THRESHOLD` | `0.6`             | Detection confidence threshold (0.1-1.0)           |
+| `INPUT_SIZE`           | `320`             | YOLO input image size (smaller = faster)           |
+| `SUPPORTED_CLASSES`    | `person,dog,poop` | Comma-separated object classes                     |
+| `CYCLE_DELAY`          | `60`              | Seconds between detection cycles (continuous mode) |
 
 ### Camera Configuration
 
@@ -234,11 +278,14 @@ For each camera (replace `X` with camera number 1, 2, 3...):
 
 ### Log Files
 - Application logs: `/var/log/camera_monitor.log` (configurable)  
-- Cron logs: `/var/log/camera_monitor_cron.log`
+- System service logs: `journalctl -u camera-monitor`
 
 ### Status Monitoring
 ```bash
-# Real-time log monitoring
+# Real-time log monitoring (service)
+sudo journalctl -u camera-monitor.service -f
+
+# Real-time log monitoring (file)
 tail -f /var/log/camera_monitor.log
 
 # System status
@@ -246,6 +293,9 @@ python main.py --status
 
 # Camera validation  
 python main.py --validate
+
+# Service status
+sudo systemctl status camera-monitor
 ```
 
 ## 🔄 Updates and Maintenance
