@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     rtsp_timeout: int = Field(default=10, ge=1, le=60)
 
+    # Performance Configuration
+    max_concurrent_cameras: int = Field(default=4, ge=1, le=8)
+    enable_parallel_processing: bool = True
+    frame_skip_similarity_threshold: float = Field(default=0.95, ge=0.0, le=1.0)
+    max_detection_objects: int = Field(default=5, ge=1, le=100)
+
     # Camera Configuration
     camera_count: int = Field(ge=1)
 
@@ -114,6 +120,12 @@ DEVICE_NAME=camera_monitor
 LOG_FILE=/var/log/camera_monitor.log
 LOG_LEVEL=INFO
 RTSP_TIMEOUT=10
+
+# Performance Configuration
+MAX_CONCURRENT_CAMERAS=4
+ENABLE_PARALLEL_PROCESSING=true
+FRAME_SKIP_SIMILARITY_THRESHOLD=0.95
+MAX_DETECTION_OBJECTS=50
 
 # Camera Configuration
 CAMERA_COUNT=3

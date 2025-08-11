@@ -10,6 +10,7 @@ from camera import CameraHandler
 from config import Settings, load_camera_config
 from detector import YOLODetector
 from mqtt_client import MQTTHandler
+from multi_camera_processor import MultiCameraProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,14 @@ class MultiCameraMonitor:
         self.camera_handler = CameraHandler(settings)
         self.detector = YOLODetector(settings)
         self.mqtt_handler = MQTTHandler(settings)
+
+        # Initialize parallel processor if enabled
+        if settings.enable_parallel_processing and len(self.cameras) > 1:
+            self.processor = MultiCameraProcessor(settings)
+            logger.info("Parallel processing enabled for %d cameras", len(self.cameras))
+        else:
+            self.processor = None
+            logger.info("Sequential processing mode")
 
         # Validate setup
         self._validate_setup()
@@ -109,6 +118,40 @@ class MultiCameraMonitor:
         logger.info("Starting detection cycle for all cameras")
         start_time = time.time()
 
+        if self.processor and self.settings.enable_parallel_processing:
+            # Use parallel processing
+            try:
+                results = self.processor.process_all_cameras_parallel()
+                successful_cameras = 0
+
+                for result in results:
+                    if result:
+                        # Publish to MQTT
+                        if self.mqtt_handler.publish_detection(result):
+                            successful_cameras += 1
+                        else:
+                            logger.warning(
+                                "Failed to publish detection for %s",
+                                result.get("camera_name", "unknown"),
+                            )
+
+                elapsed_time = time.time() - start_time
+                logger.info(
+                    "Parallel detection cycle completed: %s/%s cameras successful in %.1fs",
+                    successful_cameras,
+                    len(self.cameras),
+                    elapsed_time,
+                )
+
+                return successful_cameras > 0
+
+            except Exception as e:
+                logger.error(
+                    "Parallel processing failed, falling back to sequential: %s", e
+                )
+                # Fall through to sequential processing
+
+        # Sequential processing (fallback or when parallel is disabled)
         successful_cameras = 0
 
         for camera in self.cameras:
@@ -117,14 +160,14 @@ class MultiCameraMonitor:
                     successful_cameras += 1
 
                 # Small delay between cameras to avoid overwhelming the system
-                time.sleep(1)
+                time.sleep(0.5)  # Reduced delay for better performance
 
             except Exception as e:
                 logger.error("Unexpected error processing %s: %s", camera["name"], e)
 
         elapsed_time = time.time() - start_time
         logger.info(
-            "Detection cycle completed: %s/%s cameras successful in %.1fs",
+            "Sequential detection cycle completed: %s/%s cameras successful in %.1fs",
             successful_cameras,
             len(self.cameras),
             elapsed_time,
@@ -161,6 +204,39 @@ class MultiCameraMonitor:
             List of camera validation results
         """
         logger.info("Validating camera connections...")
+
+        if self.processor and self.settings.enable_parallel_processing:
+            # Use parallel validation
+            try:
+                validation_results = self.processor.validate_all_cameras()
+                results = []
+
+                for camera in self.cameras:
+                    is_valid = validation_results.get(camera["id"], False)
+                    results.append(
+                        {
+                            "camera": camera["name"],
+                            "valid": is_valid,
+                            "rtsp_url": camera["rtsp_url"],
+                        }
+                    )
+
+                    status = "✓" if is_valid else "✗"
+                    logger.info(
+                        "%s %s: %s",
+                        status,
+                        camera["name"],
+                        "Connected" if is_valid else "Failed",
+                    )
+
+                return results
+
+            except Exception as e:
+                logger.error(
+                    "Parallel validation failed, falling back to sequential: %s", e
+                )
+
+        # Sequential validation (fallback)
         results = []
 
         for camera in self.cameras:
@@ -207,4 +283,7 @@ class MultiCameraMonitor:
         """Cleanup all resources"""
         logger.info("Cleaning up resources...")
         self.mqtt_handler.cleanup()
+        self.camera_handler.cleanup()
+        if self.processor:
+            self.processor.cleanup()
         logger.info("Cleanup completed")

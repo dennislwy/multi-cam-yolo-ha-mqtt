@@ -22,14 +22,27 @@ class YOLODetector:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.model = None
+        self._class_ids = None  # Cache for supported class IDs
         self.setup_model()
 
     def setup_model(self):
-        """Initialize YOLO model"""
+        """Initialize YOLO model with optimizations"""
         try:
             logger.info("Loading YOLO model from %s", self.settings.yolo_model_path)
             self.model = YOLO(self.settings.yolo_model_path)
-            logger.info("YOLO model loaded successfully")
+
+            # Warmup the model with a dummy frame to reduce first inference latency
+            dummy_frame = np.zeros(
+                (self.settings.input_size, self.settings.input_size, 3), dtype=np.uint8
+            )
+            self.model(
+                dummy_frame, verbose=False, imgsz=self.settings.input_size, device="cpu"
+            )
+
+            # Cache supported class IDs for faster filtering
+            self._get_supported_class_ids()
+
+            logger.info("YOLO model loaded and warmed up successfully")
         except Exception as e:
             logger.error("Failed to load YOLO model: %s", e)
             sys.exit(1)
@@ -59,6 +72,8 @@ class YOLODetector:
                 conf=self.settings.confidence_threshold,
                 device="cpu",
                 half=False,
+                max_det=50,  # Limit max detections for performance
+                classes=self._get_supported_class_ids(),  # Only detect supported classes
             )
 
             detection_time = time.time() - start_time
@@ -127,6 +142,30 @@ class YOLODetector:
                 e,
             )
             return None
+
+    def _get_supported_class_ids(self) -> List[int]:
+        """
+        Get class IDs for supported classes to filter inference
+
+        Returns:
+            List of class IDs for supported classes
+        """
+        if self._class_ids is None:
+            if not self.model or not hasattr(self.model, "names"):
+                return []
+
+            self._class_ids = [
+                class_id
+                for class_id, class_name in self.model.names.items()
+                if class_name in self.settings.supported_classes
+            ]
+            logger.info(
+                "Cached %d supported class IDs: %s",
+                len(self._class_ids),
+                self._class_ids,
+            )
+
+        return self._class_ids
 
     def get_model_info(self) -> Dict[str, Any]:
         """

@@ -19,6 +19,7 @@ class CameraHandler:
 
     def __init__(self, settings: Settings):
         self.settings = settings
+        self.active_captures = {}  # Cache camera connections
 
     def capture_frame_from_rtsp(self, camera: dict) -> Optional[np.ndarray]:
         """
@@ -32,24 +33,35 @@ class CameraHandler:
         """
         try:
             start_time = time.time()
-            logger.debug("Capturing frame from %s", camera["name"])
+            camera_id = camera["id"]
 
-            # Create new capture object for each frame to avoid connection issues
-            cap = cv2.VideoCapture(camera["rtsp_url"])
+            # Reuse existing capture or create new one
+            if camera_id not in self.active_captures:
+                # Create new capture object
+                cap = cv2.VideoCapture(camera["rtsp_url"])
 
-            # Set timeout if available (OpenCV 4.2+)
-            if hasattr(cv2, "CAP_PROP_TIMEOUT"):
-                cap.set(cv2.CAP_PROP_TIMEOUT, self.settings.rtsp_timeout * 1000)
+                # Set timeout if available (OpenCV 4.2+)
+                if hasattr(cv2, "CAP_PROP_TIMEOUT"):
+                    cap.set(cv2.CAP_PROP_TIMEOUT, self.settings.rtsp_timeout * 1000)
 
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer to get latest frame
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer to get latest frame
 
+                if not cap.isOpened():
+                    logger.error("Failed to open RTSP stream for %s", camera["name"])
+                    return None
+
+                self.active_captures[camera_id] = cap
+
+            cap = self.active_captures[camera_id]
+
+            # Check if connection is still valid
             if not cap.isOpened():
-                logger.error("Failed to open RTSP stream for %s", camera["name"])
-                return None
+                # Reconnect
+                del self.active_captures[camera_id]
+                return self.capture_frame_from_rtsp(camera)
 
             # Read frame
             ret, frame = cap.read()
-            cap.release()
 
             capture_time = time.time() - start_time
 
@@ -69,6 +81,12 @@ class CameraHandler:
             return frame
 
         except Exception as e:
+            # Clean up failed connection
+            if camera_id in self.active_captures:
+                self.active_captures[camera_id].release()
+                del self.active_captures[camera_id]
+
+            # Log error with capture time
             capture_time = time.time() - start_time
             logger.error(
                 "Error capturing frame from %s after %.2fs: %s",
@@ -107,3 +125,9 @@ class CameraHandler:
         except Exception as e:
             logger.error("Camera validation failed for %s: %s", camera["name"], e)
             return False
+
+    def cleanup(self):
+        """Release all camera connections"""
+        for cap in self.active_captures.values():
+            cap.release()
+        self.active_captures.clear()
