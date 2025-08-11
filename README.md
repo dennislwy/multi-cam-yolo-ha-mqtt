@@ -36,7 +36,7 @@ multi-cam-yolo-ha-mqtt/
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/multi-cam-yolo-ha-mqtt.git
+git clone https://github.com/dennislwy/multi-cam-yolo-ha-mqtt.git
 cd multi-cam-yolo-ha-mqtt
 
 # Install dependencies

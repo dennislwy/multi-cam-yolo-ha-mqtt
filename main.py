@@ -29,7 +29,7 @@ def setup_logging(settings):
 
     logging.basicConfig(
         level=getattr(logging, settings.log_level),
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        format="%(asctime)s [%(name)10.10s][%(funcName)20.20s][%(levelname)5.5s] %(message)s",
         handlers=[
             logging.FileHandler(settings.log_file),
             logging.StreamHandler(sys.stdout),
@@ -57,6 +57,7 @@ Examples:
     parser.add_argument("--test", action="store_true", help="Run single detection test")
     parser.add_argument(
         "--continuous",
+        "-c",
         action="store_true",
         help="Run continuous monitoring (for testing)",
     )
@@ -89,8 +90,8 @@ Examples:
 
     # Load settings and setup logging
     try:
-        load_dotenv()
         settings = get_settings()
+        load_dotenv()
         setup_logging(settings)
         logger = logging.getLogger(__name__)
         logger.info("Starting Multi-Camera YOLO Detection Monitor")
