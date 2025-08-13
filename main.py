@@ -221,7 +221,7 @@ Examples:
                             cycle_time,
                         )
 
-                    logger.debug(
+                    logger.info(
                         "Cycle completed in %.2fs, waiting %ds for next cycle",
                         cycle_time,
                         settings.cycle_delay,
