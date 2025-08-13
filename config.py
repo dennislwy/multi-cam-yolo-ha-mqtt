@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     supported_classes: List[str] = ["person", "dog"]
     input_size: int = 640
     confidence_threshold: float = Field(default=0.7, ge=0.5, le=1.0)
+    device: str = Field(
+        default="cpu", description="Device for YOLO inference (cpu, cuda, mps, etc.)"
+    )
 
     # System Configuration
     device_name: str = "yolo_camera"
@@ -41,6 +44,50 @@ class Settings(BaseSettings):
 
     # Camera Configuration
     camera_count: int = Field(ge=1)
+
+    @field_validator("device")
+    @classmethod
+    def validate_device(cls, v: str) -> str:
+        """Validate device setting for YOLO inference.
+
+        Args:
+            v (str): Device string to validate.
+
+        Returns:
+            str: Validated device string.
+
+        Raises:
+            ValueError: If device string is empty or invalid format.
+        """
+        if not v or not v.strip():
+            raise ValueError("device cannot be empty")
+
+        # Clean up the device string
+        device = v.strip().lower()
+
+        # Common device validation patterns
+        valid_patterns = ["cpu", "cuda", "mps"]
+
+        # Allow cuda with device index (e.g., cuda:0, cuda:1)
+        if device.startswith("cuda"):
+            if device == "cuda" or (
+                device.startswith("cuda:") and device[5:].isdigit()
+            ):
+                return device
+            else:
+                raise ValueError(
+                    f"Invalid CUDA device format: {device}. Use 'cuda' or 'cuda:N' where N is device index"
+                )
+
+        # Allow basic device types
+        if device in valid_patterns:
+            return device
+
+        # Log warning for unrecognized device but allow it (for future compatibility)
+        print(
+            f"Warning: Unrecognized device '{device}'. Common options: {valid_patterns}"
+        )
+        return device
 
     @field_validator("log_level")
     @classmethod
@@ -114,6 +161,7 @@ YOLO_MODEL_PATH=yolov11m.pt
 INPUT_SIZE=640
 CONFIDENCE_THRESHOLD=0.7
 SUPPORTED_CLASSES=person,dog
+DEVICE=cpu
 
 # System Configuration
 LOG_FILE=/var/log/camera_monitor.log

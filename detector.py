@@ -20,15 +20,22 @@ class YOLODetector:
     """Handles YOLO model operations and object detection"""
 
     def __init__(self, settings: Settings):
+        """Initialize the YOLO detector with configurable device settings.
+
+        Args:
+            settings (Settings): Configuration settings including device specification.
+        """
         self.settings = settings
         self.model = None
         self._class_ids = None  # Cache for supported class IDs
         self.setup_model()
 
     def setup_model(self):
-        """Initialize YOLO model with optimizations"""
+        """Initialize YOLO model with optimizations and configurable device."""
         try:
-            logger.info("Loading YOLO model from %s", self.settings.yolo_model_path)
+            logger.info("Loading YOLO model from '%s'", self.settings.yolo_model_path)
+            logger.info("Using device: %s", self.settings.device)
+
             self.model = YOLO(self.settings.yolo_model_path)
 
             # Warmup the model with a dummy frame to reduce first inference latency
@@ -36,29 +43,37 @@ class YOLODetector:
                 (self.settings.input_size, self.settings.input_size, 3), dtype=np.uint8
             )
             self.model(
-                dummy_frame, verbose=False, imgsz=self.settings.input_size, device="cpu"
+                dummy_frame,
+                verbose=False,
+                imgsz=self.settings.input_size,
+                device=self.settings.device,
             )
 
             # Cache supported class IDs for faster filtering
             self._get_supported_class_ids()
 
-            logger.info("YOLO model loaded and warmed up successfully")
+            logger.info(
+                "YOLO model loaded and warmed up successfully on device: %s",
+                self.settings.device,
+            )
         except Exception as e:
-            logger.error("Failed to load YOLO model: %s", e)
+            logger.error(
+                "Failed to load YOLO model on device '%s': %s", self.settings.device, e
+            )
             sys.exit(1)
 
     def detect_objects(
         self, frame: np.ndarray, camera: dict
     ) -> Optional[Dict[str, Any]]:
-        """
-        Run YOLO detection on frame
+        """Run YOLO detection on frame using configured device.
 
         Args:
-            frame: Input image frame
-            camera: Camera configuration dictionary
+            frame (np.ndarray): Input image frame for object detection.
+            camera (dict): Camera configuration dictionary containing camera metadata.
 
         Returns:
-            Detection results dictionary or None if failed
+            Optional[Dict[str, Any]]: Detection results dictionary containing detected objects
+                                    and metadata, or None if detection failed.
         """
         # Validate inputs
         if frame is None or frame.size == 0:
@@ -72,15 +87,19 @@ class YOLODetector:
         start_time = time.time()
 
         try:
-            logger.info("Running detection for '%s'", camera["name"])
+            logger.info(
+                "Running detection for '%s' on device '%s'",
+                camera["name"],
+                self.settings.device,
+            )
 
-            # Run inference
+            # Run inference with configured device
             results = self.model(
                 frame,
                 verbose=False,
                 imgsz=self.settings.input_size,
                 conf=self.settings.confidence_threshold,
-                device="cpu",
+                device=self.settings.device,
                 half=False,
                 max_det=self.settings.max_detection_objects,
                 classes=self._get_supported_class_ids(),  # Only detect supported classes
@@ -134,9 +153,10 @@ class YOLODetector:
 
             summary_text = ", ".join(summary) if summary else "no objects"
             logger.info(
-                "Detection completed for '%s' in %.2fs: %s",
+                "Detection completed for '%s' in %.2fs on %s: %s",
                 camera["name"],
                 detection_time,
+                self.settings.device,
                 summary_text,
             )
 
@@ -145,9 +165,10 @@ class YOLODetector:
         except Exception as e:
             detection_time = time.time() - start_time
             logger.error(
-                "Error during object detection for '%s' after %.2fs: %s",
+                "Error during object detection for '%s' after %.2fs on device '%s': %s",
                 camera["name"],
                 detection_time,
+                self.settings.device,
                 e,
             )
             return None
@@ -177,11 +198,11 @@ class YOLODetector:
         return self._class_ids
 
     def get_model_info(self) -> Dict[str, Any]:
-        """
-        Get information about the loaded YOLO model
+        """Get information about the loaded YOLO model including device configuration.
 
         Returns:
-            Dictionary containing model information
+            Dict[str, Any]: Dictionary containing comprehensive model information including
+                          device settings, model parameters, and supported classes.
         """
         if not self.model:
             return {}
@@ -189,6 +210,7 @@ class YOLODetector:
         return {
             "model_path": self.settings.yolo_model_path,
             "model_type": str(type(self.model)),
+            "device": self.settings.device,
             "supported_classes": self.settings.supported_classes,
             "input_size": self.settings.input_size,
             "confidence_threshold": self.settings.confidence_threshold,
