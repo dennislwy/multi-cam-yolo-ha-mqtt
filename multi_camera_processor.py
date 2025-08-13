@@ -62,7 +62,7 @@ class MultiCameraProcessor:
         # Determine optimal number of workers
         max_workers = min(4, len(self.cameras), self.settings.max_concurrent_cameras)
 
-        logger.info(
+        logger.debug(
             "Processing %d cameras with %d workers",
             len(self.cameras),
             max_workers,

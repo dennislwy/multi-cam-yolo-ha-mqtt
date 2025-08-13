@@ -64,13 +64,11 @@ CAMERA_COUNT=2
 # Camera 1
 CAMERA_1_NAME=Front Door
 CAMERA_1_RTSP_URL=rtsp://user:pass@192.168.0.5:554/stream1
-CAMERA_1_LOCATION=Front Entrance
 CAMERA_1_ENABLED=true
 
 # Camera 2
 CAMERA_2_NAME=Backyard
 CAMERA_2_RTSP_URL=rtsp://user:pass@192.168.0.6:554/stream1
-CAMERA_2_LOCATION=Backyard  
 CAMERA_2_ENABLED=true
 ```
 
@@ -228,12 +226,11 @@ sudo systemctl mask camera-monitor      # Completely disable
 
 For each camera (replace `X` with camera number 1, 2, 3...):
 
-| Variable            | Required | Description                                |
-| ------------------- | -------- | ------------------------------------------ |
-| `CAMERA_X_NAME`     | ✅        | Human-readable camera name                 |
-| `CAMERA_X_RTSP_URL` | ✅        | Full RTSP stream URL with credentials      |
-| `CAMERA_X_LOCATION` | ❌        | Physical location (for HA area assignment) |
-| `CAMERA_X_ENABLED`  | ❌        | Enable/disable camera (default: true)      |
+| Variable            | Required | Description                           |
+| ------------------- | -------- | ------------------------------------- |
+| `CAMERA_X_NAME`     | ✅        | Human-readable camera name            |
+| `CAMERA_X_RTSP_URL` | ✅        | Full RTSP stream URL with credentials |
+| `CAMERA_X_ENABLED`  | ❌        | Enable/disable camera (default: true) |
 
 ## 🔧 Troubleshooting
 

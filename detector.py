@@ -60,11 +60,21 @@ class YOLODetector:
         Returns:
             Detection results dictionary or None if failed
         """
-        try:
-            start_time = time.time()
-            logger.debug("Running detection for %s", camera["name"])
+        # Validate inputs
+        if frame is None or frame.size == 0:
+            logger.error("Invalid frame provided for detection")
+            return None
 
-            # Run inference optimized for Raspberry Pi 4
+        if not self.model:
+            logger.error("YOLO model not initialized")
+            return None
+
+        start_time = time.time()
+
+        try:
+            logger.info("Running detection for '%s'", camera["name"])
+
+            # Run inference
             results = self.model(
                 frame,
                 verbose=False,
@@ -72,7 +82,7 @@ class YOLODetector:
                 conf=self.settings.confidence_threshold,
                 device="cpu",
                 half=False,
-                max_det=50,  # Limit max detections for performance
+                max_det=self.settings.max_detection_objects,
                 classes=self._get_supported_class_ids(),  # Only detect supported classes
             )
 
@@ -82,7 +92,6 @@ class YOLODetector:
             detections = {
                 "camera_id": camera["id"],
                 "camera_name": camera["name"],
-                "location": camera.get("location", ""),
                 "timestamp": datetime.now().isoformat(),
                 "total_objects": 0,
                 "detections": [],
@@ -125,7 +134,7 @@ class YOLODetector:
 
             summary_text = ", ".join(summary) if summary else "no objects"
             logger.info(
-                "Detection completed for %s in %.2fs: %s",
+                "Detection completed for '%s' in %.2fs: %s",
                 camera["name"],
                 detection_time,
                 summary_text,
@@ -136,7 +145,7 @@ class YOLODetector:
         except Exception as e:
             detection_time = time.time() - start_time
             logger.error(
-                "Error during object detection for %s after %.2fs: %s",
+                "Error during object detection for '%s' after %.2fs: %s",
                 camera["name"],
                 detection_time,
                 e,

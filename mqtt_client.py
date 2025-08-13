@@ -108,16 +108,14 @@ class MQTTHandler:
                 "json_attributes_template": "{{ value_json | tojson }}",
                 "device": {
                     "identifiers": [f"{self.settings.device_name}_{camera['id']}"],
-                    "name": f"{camera['name']} YOLO",
-                    "model": "YOLO Object Detection",
-                    "manufacturer": "Custom",
+                    "name": f"YOLO {camera['name']}",
+                    "model": "multi-cam-yolo-ha-mqtt",
+                    "manufacturer": "Dennis Lee",
+                    "sw_version": "1.0.2508.1310",
+                    "support_url": "https://github.com/dennislwy/multi-cam-yolo-ha-mqtt",
                 },
                 "icon": "mdi:camera-account",
             }
-
-            # Add location if specified
-            if camera.get("location"):
-                config["device"]["suggested_area"] = camera["location"]
 
             result = self.client.publish(
                 topics["config_topic"], json.dumps(config), retain=True

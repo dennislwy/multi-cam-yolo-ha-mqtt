@@ -15,56 +15,82 @@ logger = logging.getLogger(__name__)
 
 
 class CameraHandler:
-    """Handles RTSP camera operations"""
+    """Handles RTSP camera operations with connection caching and retry logic.
+
+    This class manages multiple RTSP camera connections, providing frame capture
+    functionality with automatic retry mechanisms and connection validation.
+
+    Attributes:
+        VALIDATION_TIMEOUT_MS (int): Timeout in milliseconds for camera validation.
+        settings (Settings): Application settings configuration.
+        active_captures (dict): Cache of active camera capture objects.
+    """
+
+    VALIDATION_TIMEOUT_MS = 5000  # 5 second timeout for validation
 
     def __init__(self, settings: Settings):
-        self.settings = settings
-        self.active_captures = {}  # Cache camera connections
-
-    def capture_frame_from_rtsp(self, camera: dict) -> Optional[np.ndarray]:
-        """
-        Capture a single frame from RTSP stream
+        """Initialize the camera handler.
 
         Args:
-            camera: Camera configuration dictionary
+            settings (Settings): Application configuration settings.
+        """
+        self.settings = settings
+        self.active_captures = {}  # Cache camera connections by camera_id
+
+    def capture_frame_from_rtsp(self, camera: dict) -> Optional[np.ndarray]:
+        """Capture a single frame from RTSP stream with retry logic.
+
+        Args:
+            camera (dict): Camera configuration dictionary containing:
+                - id (str): Unique camera identifier
+                - name (str): Human-readable camera name
+                - rtsp_url (str): RTSP stream URL
 
         Returns:
-            Captured frame as numpy array or None if failed
-        """
-        try:
-            start_time = time.time()
-            camera_id = camera["id"]
+            Optional[np.ndarray]: Captured frame as numpy array, or None if capture failed.
 
-            # Get or create capture object
+        Raises:
+            Exception: Any unexpected error during frame capture is caught and logged.
+        """
+        camera_id = camera["id"]
+        start_time = time.time()  # Track capture performance
+
+        try:
+
+            # Get or create capture object from cache
             cap = self._get_or_create_capture(camera_id, camera)
             if not cap:
                 return None
 
-            # Try to read frame with retry logic
+            # Attempt frame capture with retry mechanism
             ret, frame = self._read_frame_with_retry(camera_id, camera, cap, 1)
 
-            capture_time = time.time() - start_time
+            capture_time = time.time() - start_time  # Calculate total capture time
 
             if not ret:
                 logger.error(
-                    "Failed to capture frame from %s after retry, took %.2fs",
+                    "Failed to capture frame from '%s' after retry, took %.2fs",
                     camera["name"],
                     capture_time,
                 )
                 return None
 
             logger.info(
-                "Frame captured successfully from %s in %.2fs",
+                "Frame captured successfully from '%s' in %.2fs",
                 camera["name"],
                 capture_time,
             )
             return frame
 
         except Exception as e:
-            self._cleanup_failed_capture(camera_id)
+            # Cleanup failed capture to prevent resource leaks
+            if camera_id in self.active_captures:
+                self.active_captures[camera_id].release()
+                del self.active_captures[camera_id]
+
             capture_time = time.time() - start_time
             logger.error(
-                "Error capturing frame from %s after %.2fs: %s",
+                "Error capturing frame from '%s' after %.2fs: %s",
                 camera["name"],
                 capture_time,
                 e,
@@ -72,133 +98,200 @@ class CameraHandler:
             return None
 
     def validate_camera_connection(self, camera: dict) -> bool:
-        """
-        Test camera connection without capturing frame
+        """Test camera connection without capturing frame for validation purposes.
 
         Args:
-            camera: Camera configuration dictionary
+            camera (dict): Camera configuration dictionary containing:
+                - name (str): Human-readable camera name
+                - rtsp_url (str): RTSP stream URL
 
         Returns:
-            True if camera is accessible, False otherwise
+            bool: True if camera is accessible and can read frames, False otherwise.
+
+        Raises:
+            Exception: Any connection errors are caught and logged as validation failure.
         """
+        cap = None
         try:
+            # Create temporary capture object for validation
             cap = cv2.VideoCapture(camera["rtsp_url"])
 
-            # Set timeout if available
+            # Set timeout if available (OpenCV 4.2+)
             if hasattr(cv2, "CAP_PROP_TIMEOUT"):
-                cap.set(cv2.CAP_PROP_TIMEOUT, 5000)  # 5 second timeout for testing
+                cap.set(cv2.CAP_PROP_TIMEOUT, self.VALIDATION_TIMEOUT_MS)
 
+            # Check if stream opened successfully
             if not cap.isOpened():
-                cap.release()
                 return False
 
+            # Test actual frame reading capability
             ret, _ = cap.read()
-            cap.release()
-
             return ret
 
         except Exception as e:
-            logger.error("Camera validation failed for %s: %s", camera["name"], e)
+            logger.error("Camera validation failed for '%s': %s", camera["name"], e)
             return False
 
+        finally:
+            # Ensure capture is always released to prevent resource leaks
+            if cap is not None:
+                cap.release()
+
     def cleanup(self):
-        """Release all camera connections"""
+        """Release all active camera connections and clear the cache.
+
+        This method should be called when shutting down to properly release
+        all OpenCV VideoCapture resources.
+        """
+        # Release all cached capture objects
         for cap in self.active_captures.values():
             cap.release()
+        # Clear the cache dictionary
         self.active_captures.clear()
 
     def _get_or_create_capture(
         self, camera_id: str, camera: dict
     ) -> Optional[cv2.VideoCapture]:
-        """Get existing capture or create new one"""
+        """Get existing capture from cache or create new one if needed.
+
+        Args:
+            camera_id (str): Unique identifier for the camera.
+            camera (dict): Camera configuration dictionary.
+
+        Returns:
+            Optional[cv2.VideoCapture]: Active capture object or None if creation failed.
+        """
+        # Check if capture already exists in cache
         if camera_id not in self.active_captures:
             cap = self._create_capture(camera)
             if not cap:
                 return None
+            # Cache the new capture object
             self.active_captures[camera_id] = cap
 
         cap = self.active_captures[camera_id]
 
-        # Check if connection is still valid
+        # Validate cached connection is still active
         if not cap.isOpened():
+            # Clean up stale connection
+            cap.release()
             del self.active_captures[camera_id]
+            # Recursively create new connection
             return self._get_or_create_capture(camera_id, camera)
 
         return cap
 
     def _create_capture(self, camera: dict) -> Optional[cv2.VideoCapture]:
-        """Create and configure new capture object"""
+        """Create and configure new VideoCapture object with optimal settings.
+
+        Args:
+            camera (dict): Camera configuration dictionary containing rtsp_url and name.
+
+        Returns:
+            Optional[cv2.VideoCapture]: Configured capture object or None if failed.
+
+        Raises:
+            Exception: Any errors during capture creation are caught and logged.
+        """
         cap = cv2.VideoCapture(camera["rtsp_url"])
 
-        # Set timeout if available (OpenCV 4.2+)
-        if hasattr(cv2, "CAP_PROP_TIMEOUT"):
-            cap.set(cv2.CAP_PROP_TIMEOUT, self.settings.rtsp_timeout * 1000)
+        try:
+            # Configure timeout if supported by OpenCV version
+            if hasattr(cv2, "CAP_PROP_TIMEOUT"):
+                # Convert seconds to milliseconds for OpenCV
+                cap.set(cv2.CAP_PROP_TIMEOUT, self.settings.rtsp_timeout * 1000)
 
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer to get latest frame
+            # Minimize buffer to get most recent frame (reduce latency)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-        if not cap.isOpened():
-            logger.error("Failed to open RTSP stream for %s", camera["name"])
+            # Verify stream opened successfully
+            if not cap.isOpened():
+                cap.release()
+                logger.error("Failed to open RTSP stream for '%s'", camera["name"])
+                return None
+
+            return cap
+        except Exception as e:
+            # Cleanup on configuration failure
+            cap.release()
+            logger.error("Failed to create capture for '%s': %s", camera["name"], e)
             return None
-
-        return cap
 
     def _read_frame_with_retry(
         self, camera_id: str, camera: dict, cap: cv2.VideoCapture, max_retries: int = 1
     ) -> tuple[bool, Optional[np.ndarray]]:
-        """Read frame with configurable retry on failure"""
-        ret, frame = cap.read()
+        """Read frame with configurable retry logic on failure.
 
+        Args:
+            camera_id (str): Unique camera identifier for cache management.
+            camera (dict): Camera configuration dictionary.
+            cap (cv2.VideoCapture): Current capture object.
+            max_retries (int, optional): Maximum number of retry attempts. Defaults to 1.
+
+        Returns:
+            tuple[bool, Optional[np.ndarray]]: Success flag and captured frame array.
+                Returns (True, frame) on success, (False, None) on failure.
+        """
+        logger.info("Start to capture frame from '%s'", camera["name"])
+        # Initial frame read attempt
+        ret, frame = cap.read()
         if ret:
             return ret, frame
 
-        # Handle retries
+        # Handle retry attempts for failed reads
         for retry_attempt in range(max_retries):
             logger.warning(
-                "Frame capture failed for %s, retry attempt %d/%d",
+                "Frame capture failed for '%s', retry attempt %d/%d",
                 camera["name"],
                 retry_attempt + 1,
                 max_retries,
             )
 
-            # Release failed capture and create new one
+            # Clean up failed capture object
             cap.release()
             if camera_id in self.active_captures:
                 del self.active_captures[camera_id]
 
-            new_cap = self._create_capture(camera)
-            if not new_cap:
+            # Create fresh capture object for retry
+            cap = self._create_capture(camera)
+            if not cap:
                 logger.error(
-                    "Failed to open RTSP stream for %s on retry %d/%d",
+                    "Failed to open RTSP stream for '%s' on retry %d/%d",
                     camera["name"],
                     retry_attempt + 1,
                     max_retries,
                 )
                 continue
 
-            # Store new capture and try again
-            self.active_captures[camera_id] = new_cap
-            ret, frame = new_cap.read()
+            # Update cache with new capture object
+            try:
+                self.active_captures[camera_id] = cap
+                ret, frame = cap.read()
 
-            if ret:
-                logger.info(
-                    "Frame capture succeeded for %s on retry %d/%d",
-                    camera["name"],
+                if ret:
+                    logger.info(
+                        "Frame capture succeeded for '%s' on retry %d/%d",
+                        camera["name"],
+                        retry_attempt + 1,
+                        max_retries,
+                    )
+                    return ret, frame
+
+            except Exception as e:
+                # Clean up on failure
+                cap.release()
+                del self.active_captures[camera_id]
+                logger.error(
+                    "Error during retry %d for '%s': %s",
                     retry_attempt + 1,
-                    max_retries,
+                    camera["name"],
+                    e,
                 )
-                return ret, frame
-
-            # Update cap reference for next iteration
-            cap = new_cap
 
         logger.error(
-            "Frame capture failed for %s after %d retries", camera["name"], max_retries
+            "Frame capture failed for '%s' after %d retries",
+            camera["name"],
+            max_retries,
         )
 
         return False, None
-
-    def _cleanup_failed_capture(self, camera_id: str):
-        """Clean up failed connection"""
-        if camera_id in self.active_captures:
-            self.active_captures[camera_id].release()
-            del self.active_captures[camera_id]

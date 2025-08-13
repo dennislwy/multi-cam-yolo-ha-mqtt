@@ -14,20 +14,20 @@ class Settings(BaseSettings):
     """Main configuration settings"""
 
     # MQTT Configuration
-    mqtt_broker: str = "192.168.0.88"
+    mqtt_broker: str = "127.0.0.1"
     mqtt_port: int = 1883
     mqtt_username: Optional[str] = None
     mqtt_password: Optional[str] = None
     discovery_prefix: str = "homeassistant"
 
     # YOLO Model Configuration
-    yolo_model_path: str = "yolov8n.pt"
-    input_size: int = 320
-    confidence_threshold: float = Field(default=0.6, ge=0.1, le=1.0)
-    supported_classes: List[str] = ["person", "dog", "poop", "baby"]
+    yolo_model_path: str = "yolov11m.pt"
+    supported_classes: List[str] = ["person", "dog"]
+    input_size: int = 640
+    confidence_threshold: float = Field(default=0.7, ge=0.5, le=1.0)
 
     # System Configuration
-    device_name: str = "camera_monitor"
+    device_name: str = "yolo_camera"
     log_file: str = "/var/log/camera_monitor.log"
     log_level: str = "INFO"
     rtsp_timeout: int = Field(default=10, ge=1, le=60)
@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     max_concurrent_cameras: int = Field(default=4, ge=1, le=8)
     enable_parallel_processing: bool = True
     frame_skip_similarity_threshold: float = Field(default=0.95, ge=0.0, le=1.0)
-    max_detection_objects: int = Field(default=5, ge=1, le=100)
+    max_detection_objects: int = Field(default=10, ge=1, le=100)
 
     # Camera Configuration
     camera_count: int = Field(ge=1)
@@ -79,7 +79,6 @@ def load_camera_config(settings: Settings) -> List[dict]:
             "id": i,
             "name": name,
             "rtsp_url": rtsp_url,
-            "location": os.getenv(f"CAMERA_{i}_LOCATION", ""),
             "enabled": os.getenv(f"CAMERA_{i}_ENABLED", "true").lower() == "true",
         }
 
@@ -104,20 +103,19 @@ def create_example_env_file():
     example_content = """# Multi-Camera YOLO Detection Configuration
 
 # MQTT Configuration
-MQTT_BROKER=192.168.0.88
+MQTT_BROKER=127.0.0.1
 MQTT_PORT=1883
 MQTT_USERNAME=
 MQTT_PASSWORD=
 DISCOVERY_PREFIX=homeassistant
 
 # YOLO Model Configuration
-YOLO_MODEL_PATH=yolov8n.pt
-INPUT_SIZE=320
-CONFIDENCE_THRESHOLD=0.6
-SUPPORTED_CLASSES=person,dog,poop
+YOLO_MODEL_PATH=yolov11m.pt
+INPUT_SIZE=640
+CONFIDENCE_THRESHOLD=0.7
+SUPPORTED_CLASSES=person,dog
 
 # System Configuration
-DEVICE_NAME=camera_monitor
 LOG_FILE=/var/log/camera_monitor.log
 LOG_LEVEL=INFO
 RTSP_TIMEOUT=10
@@ -135,13 +133,11 @@ CAMERA_COUNT=3
 # Camera 1
 CAMERA_1_NAME=Front Door
 CAMERA_1_RTSP_URL=rtsp://administrator:password@192.168.0.5:554/stream1
-CAMERA_1_LOCATION=Front Entrance
 CAMERA_1_ENABLED=true
 
 # Camera 2
 CAMERA_2_NAME=Backyard
 CAMERA_2_RTSP_URL=rtsp://administrator:password@192.168.0.6:554/stream1
-CAMERA_2_LOCATION=Backyard
 CAMERA_2_ENABLED=true
 
 # Camera 3
