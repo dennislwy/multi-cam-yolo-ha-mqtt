@@ -193,13 +193,23 @@ class CameraHandler:
         Raises:
             Exception: Any errors during capture creation are caught and logged.
         """
-        cap = cv2.VideoCapture(camera["rtsp_url"])
+        logging.debug("Creating capture for camera '%s'", camera["name"])
+        cap = cv2.VideoCapture(camera["rtsp_url"], cv2.CAP_FFMPEG)
+
+        rtsp_timeout_ms = self.settings.rtsp_timeout * 1000
 
         try:
-            # Configure timeout if supported by OpenCV version
+            # Set multiple timeout properties for better control
             if hasattr(cv2, "CAP_PROP_TIMEOUT"):
-                # Convert seconds to milliseconds for OpenCV
-                cap.set(cv2.CAP_PROP_TIMEOUT, self.settings.rtsp_timeout * 1000)
+                cap.set(cv2.CAP_PROP_TIMEOUT, rtsp_timeout_ms)
+
+            # Set open timeout (FFmpeg specific)
+            if hasattr(cv2, "CAP_PROP_OPEN_TIMEOUT_MSEC"):
+                cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, rtsp_timeout_ms)
+
+            # Set read timeout (FFmpeg specific)
+            if hasattr(cv2, "CAP_PROP_READ_TIMEOUT_MSEC"):
+                cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, rtsp_timeout_ms)
 
             # Minimize buffer to get most recent frame (reduce latency)
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -232,7 +242,7 @@ class CameraHandler:
             tuple[bool, Optional[np.ndarray]]: Success flag and captured frame array.
                 Returns (True, frame) on success, (False, None) on failure.
         """
-        logger.info("Start to capture frame from '%s'", camera["name"])
+        logger.debug("Start to capture frame from '%s'", camera["name"])
         # Initial frame read attempt
         ret, frame = cap.read()
         if ret:

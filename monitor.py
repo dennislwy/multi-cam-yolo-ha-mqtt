@@ -84,7 +84,7 @@ class MultiCameraMonitor:
 
         # Log detailed model information for debugging and verification
         model_info = self.detector.get_model_info()
-        logger.info("Model loaded: %s", model_info.get("model_path", "Unknown"))
+        logger.info("YOLO model loaded: %s", model_info.get("model_path", "Unknown"))
         logger.info("Supported classes: %s", model_info.get("supported_classes", []))
 
     def setup_homeassistant_discovery(self) -> bool:
@@ -127,11 +127,14 @@ class MultiCameraMonitor:
                 self._reset_circuit_breaker(camera_id)
             else:
                 # Camera is still in circuit breaker cooldown period
-                logger.debug(
-                    "Camera '%s' is in circuit breaker state, skipping", camera["name"]
+                logger.info(
+                    "Camera '%s' is in circuit breaker state, skipping for another %.1fmin",
+                    camera["name"],
+                    self._recovery_time_remaining(camera_id) / 60,
                 )
                 return False
 
+        start_time = time.time()
         logger.debug("Starting detection cycle for '%s'", camera["name"])
 
         try:
@@ -155,7 +158,12 @@ class MultiCameraMonitor:
 
             # Reset failure tracking on successful completion of full cycle
             self._reset_camera_failures(camera_id, camera["name"])
-            logger.debug("Detection cycle completed for '%s'", camera["name"])
+            detection_time = time.time() - start_time
+            logger.info(
+                "Detection cycle completed for '%s' in %.2f seconds",
+                camera["name"],
+                detection_time,
+            )
             return True
 
         except Exception as e:
@@ -179,6 +187,26 @@ class MultiCameraMonitor:
             and camera_id in self.camera_circuit_breaker_times
         )
 
+    def _recovery_time_remaining(self, camera_id: str) -> float:
+        """Calculate remaining recovery time for a camera in circuit breaker state.
+
+        Args:
+            camera_id (str): Unique identifier for the camera.
+
+        Returns:
+            float: Remaining recovery time in seconds, or 0 if not in circuit breaker state.
+        """
+        if camera_id not in self.camera_circuit_breaker_times:
+            return 0.0
+
+        circuit_breaker_time = self.camera_circuit_breaker_times[camera_id]
+        recovery_threshold = circuit_breaker_time + (
+            self.circuit_breaker_recovery_minutes * 60
+        )
+        current_time = time.time()
+
+        return max(0.0, recovery_threshold - current_time)
+
     def _should_attempt_recovery(self, camera_id: str) -> bool:
         """Check if enough time has passed to attempt camera recovery.
 
@@ -189,17 +217,8 @@ class MultiCameraMonitor:
             bool: True if the recovery timeout period has elapsed and recovery
                  should be attempted, False if still in cooldown period.
         """
-        if camera_id not in self.camera_circuit_breaker_times:
-            return False
-
-        # Calculate if enough time has passed since circuit breaker activation
-        circuit_breaker_time = self.camera_circuit_breaker_times[camera_id]
-        recovery_threshold = circuit_breaker_time + (
-            self.circuit_breaker_recovery_minutes * 60
-        )  # Convert minutes to seconds
-        current_time = time.time()
-
-        return current_time >= recovery_threshold
+        remaining_time_sec = self._recovery_time_remaining(camera_id)
+        return remaining_time_sec <= 0
 
     def _reset_circuit_breaker(self, camera_id: str):
         """Reset circuit breaker state for a camera to allow operation attempts.
@@ -267,7 +286,7 @@ class MultiCameraMonitor:
             self.camera_circuit_breaker_times[camera_id] = time.time()
 
             logger.error(
-                "Camera '%s' has failed %d times consecutively, enabling circuit breaker for %d minute(s)",
+                "Camera '%s' has failed %d times consecutively, enabling circuit breaker for %dmin",
                 camera_name,
                 self.max_consecutive_failures,
                 self.circuit_breaker_recovery_minutes,
@@ -283,7 +302,7 @@ class MultiCameraMonitor:
             bool: True if at least one camera was processed successfully,
                  False if all cameras failed or no cameras are configured.
         """
-        logger.info("Starting detection cycle for all cameras")
+        logger.debug("Starting detection cycle for all cameras")
         start_time = time.time()
 
         # Use parallel processing if enabled and processor is available

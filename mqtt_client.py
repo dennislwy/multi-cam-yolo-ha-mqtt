@@ -126,7 +126,7 @@ class MQTTHandler:
                 return True
             else:
                 logger.error(
-                    "Failed to publish discovery config for %s: %s",
+                    "Failed to publish discovery config for '%s': %s",
                     camera["name"],
                     result.rc,
                 )
@@ -134,7 +134,7 @@ class MQTTHandler:
 
         except Exception as e:
             logger.error(
-                "Error publishing discovery config for %s: %s", camera["name"], e
+                "Error publishing discovery config for '%s': %s", camera["name"], e
             )
             return False
 
@@ -178,16 +178,16 @@ class MQTTHandler:
             result = self.client.publish(topics["state_topic"], payload, qos=1)
 
             if result.rc == mqtt.MQTT_ERR_SUCCESS:
-                logger.debug("Detection results published for %s", camera["name"])
+                logger.debug("Detection results published for '%s'", camera["name"])
                 return True
-            else:
-                logger.error(
-                    "Failed to publish to MQTT for %s: %s", camera["name"], result.rc
-                )
-                return False
+
+            logger.error(
+                "Failed to publish to MQTT for '%s': %s", camera["name"], result.rc
+            )
+            return False
 
         except Exception as e:
-            logger.error("Error publishing to MQTT for %s: %s", camera["name"], e)
+            logger.error("Error publishing to MQTT for '%s': %s", camera["name"], e)
             return False
 
     def publish_detection(self, detections: Dict[str, Any], camera: dict) -> bool:

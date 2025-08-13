@@ -46,7 +46,7 @@ class MultiCameraProcessor:
             return result
 
         except Exception as e:
-            logger.error("Error processing camera %s: %s", camera["name"], e)
+            logger.error("Error processing camera '%s': %s", camera["name"], e)
             return None
 
     def process_all_cameras_parallel(self) -> List[Dict[str, Any]]:
@@ -83,10 +83,10 @@ class MultiCameraProcessor:
                     if result:
                         results.append(result)
                         logger.debug(
-                            "Completed processing for camera %s", camera["name"]
+                            "Completed processing for camera '%s'", camera["name"]
                         )
                 except Exception as e:
-                    logger.error("Error processing camera %s: %s", camera["name"], e)
+                    logger.error("Error processing camera '%s': %s", camera["name"], e)
 
         total_time = time.time() - start_time
         logger.info(
@@ -133,12 +133,12 @@ class MultiCameraProcessor:
                     is_valid = future.result(timeout=10)
                     results[camera["id"]] = is_valid
                     logger.info(
-                        "Camera %s validation: %s",
+                        "Camera '%s' validation: %s",
                         camera["name"],
                         "OK" if is_valid else "FAILED",
                     )
                 except Exception as e:
-                    logger.error("Error validating camera %s: %s", camera["name"], e)
+                    logger.error("Error validating camera '%s': %s", camera["name"], e)
                     results[camera["id"]] = False
 
         return results

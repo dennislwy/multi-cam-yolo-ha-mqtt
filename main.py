@@ -71,10 +71,10 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s                           # Run single detection cycle (for cron)
+  %(prog)s                           # Run continuous monitoring (default)
+  %(prog)s --single                  # Run single detection cycle (for cron)
   %(prog)s --test                    # Test all cameras once
   %(prog)s --test --camera "Front Door"  # Test specific camera
-  %(prog)s --continuous              # Run continuous monitoring
   %(prog)s --validate                # Validate camera connections
   %(prog)s --status                  # Show system status
   %(prog)s --create-env              # Create example .env file
@@ -83,10 +83,10 @@ Examples:
 
     parser.add_argument("--test", action="store_true", help="Run single detection test")
     parser.add_argument(
-        "--continuous",
-        "-c",
+        "--single",
+        "-s",
         action="store_true",
-        help="Run continuous monitoring (for testing)",
+        help="Run single detection cycle (for cron or testing)",
     )
     parser.add_argument(
         "--create-env", action="store_true", help="Create example .env file"
@@ -198,33 +198,43 @@ Examples:
                 print("❌ Test failed")
                 return 1
 
-        elif args.continuous:
-            # Continuous monitoring mode
+        elif args.single:
+            # Single detection cycle (for cron job or testing)
+            logger.info("Running single detection cycle")
+            success = monitor.run_all_cameras_detection_cycle()
+            return 0 if success else 1
+
+        else:
+            # Default: continuous monitoring mode
             logger.info("Starting continuous monitoring mode")
             print("🔄 Running continuous monitoring... (Press Ctrl+C to stop)")
 
             try:
                 while True:
+                    cycle_start = time.time()
                     monitor.run_all_cameras_detection_cycle()
-                    logging.debug(
-                        "Waiting for next cycle...sleep for %d seconds",
+                    cycle_time = time.time() - cycle_start
+
+                    if cycle_time > 60:  # Warn if cycle takes too long
+                        logger.warning(
+                            "Detection cycle took %.2fs - consider checking camera connections",
+                            cycle_time,
+                        )
+
+                    logger.debug(
+                        "Cycle completed in %.2fs, waiting %ds for next cycle",
+                        cycle_time,
                         settings.cycle_delay,
                     )
                     print(
-                        "⏳ Waiting for next cycle...sleep for %d seconds"
-                        % settings.cycle_delay
+                        f"⏳ Cycle completed in {cycle_time:.2f}s, waiting {settings.cycle_delay}s for next cycle"
                     )
-                    time.sleep(settings.cycle_delay)  # Use configurable delay
+
+                    time.sleep(settings.cycle_delay)
             except KeyboardInterrupt:
                 logger.info("Continuous monitoring stopped by user")
                 print("\n⏹️  Monitoring stopped")
                 return 0
-
-        else:
-            # Default: single run (for cron job)
-            logger.info("Running single detection cycle")
-            success = monitor.run_all_cameras_detection_cycle()
-            return 0 if success else 1
 
     except KeyboardInterrupt:
         logger.info("Interrupted by user")
@@ -240,7 +250,7 @@ Examples:
         # Cleanup resources
         try:
             monitor.cleanup()
-        except:
+        except Exception:
             pass
 
 

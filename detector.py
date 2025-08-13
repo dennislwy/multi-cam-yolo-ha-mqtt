@@ -33,7 +33,7 @@ class YOLODetector:
     def setup_model(self):
         """Initialize YOLO model with optimizations and configurable device."""
         try:
-            logger.info("Loading YOLO model from '%s'", self.settings.yolo_model_path)
+            logger.info("Loading YOLO model: %s", self.settings.yolo_model_path)
             logger.info("Using device: %s", self.settings.device)
 
             self.model = YOLO(self.settings.yolo_model_path)
@@ -52,14 +52,9 @@ class YOLODetector:
             # Cache supported class IDs for faster filtering
             self._get_supported_class_ids()
 
-            logger.info(
-                "YOLO model loaded and warmed up successfully on device: %s",
-                self.settings.device,
-            )
+            logger.info("YOLO model loaded and warmed up successfully")
         except Exception as e:
-            logger.error(
-                "Failed to load YOLO model on device '%s': %s", self.settings.device, e
-            )
+            logger.error("Failed to load YOLO model: %s", e)
             sys.exit(1)
 
     def detect_objects(
@@ -87,11 +82,7 @@ class YOLODetector:
         start_time = time.time()
 
         try:
-            logger.info(
-                "Running detection for '%s' on device '%s'",
-                camera["name"],
-                self.settings.device,
-            )
+            logger.debug("Running detection for '%s'", camera["name"])
 
             # Run inference with configured device
             results = self.model(
@@ -165,10 +156,9 @@ class YOLODetector:
         except Exception as e:
             detection_time = time.time() - start_time
             logger.error(
-                "Error during object detection for '%s' after %.2fs on device '%s': %s",
+                "Error during object detection for '%s' after %.2fs: %s",
                 camera["name"],
                 detection_time,
-                self.settings.device,
                 e,
             )
             return None
