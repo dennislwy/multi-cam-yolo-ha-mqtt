@@ -46,7 +46,7 @@ class MultiCameraProcessor:
         # Check circuit breaker if monitor is available
         if self.monitor and self.monitor._is_camera_in_circuit_breaker(camera_id):
             if self.monitor._should_attempt_recovery(camera_id):
-                logger.info(
+                logger.debug(
                     "Attempting recovery for camera '%s' after circuit breaker timeout",
                     camera["name"],
                 )
