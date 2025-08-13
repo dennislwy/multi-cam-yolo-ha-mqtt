@@ -18,16 +18,18 @@ logger = logging.getLogger(__name__)
 class MultiCameraMonitor:
     """Main monitor class that coordinates all components"""
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, output_results: bool = False):
         """Initialize the multi-camera monitor with all necessary components.
 
         Args:
             settings (Settings): Configuration settings for the monitor system.
+            output_results (bool): Whether to save detected result images to output folder.
 
         Raises:
             ValueError: If no cameras are configured in the settings.
         """
         self.settings = settings
+        self.output_results = output_results
 
         # Load camera configurations from settings
         self.cameras = load_camera_config(settings)
@@ -55,12 +57,14 @@ class MultiCameraMonitor:
 
         # Initialize core components for camera handling, detection, and MQTT communication
         self.camera_handler = CameraHandler(settings)
-        self.detector = YOLODetector(settings)
+        self.detector = YOLODetector(settings, output_results=self.output_results)
         self.mqtt_handler = MQTTHandler(settings)
 
         # Initialize parallel processor if enabled and multiple cameras are available
         if settings.enable_parallel_processing and len(self.cameras) > 1:
-            self.processor = MultiCameraProcessor(settings, monitor=self)
+            self.processor = MultiCameraProcessor(
+                settings, monitor=self, output_results=self.output_results
+            )
             logger.info("Parallel processing enabled for %d cameras", len(self.cameras))
         else:
             self.processor = None

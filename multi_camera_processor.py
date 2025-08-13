@@ -22,11 +22,14 @@ class MultiCameraProcessor:
     """Handles parallel processing of multiple cameras"""
 
     def __init__(
-        self, settings: Settings, monitor: Optional["MultiCameraMonitor"] = None
+        self,
+        settings: Settings,
+        monitor: Optional["MultiCameraMonitor"] = None,
+        output_results: bool = False,
     ):
         self.settings = settings
         self.camera_handler = CameraHandler(settings)
-        self.detector = YOLODetector(settings)
+        self.detector = YOLODetector(settings, output_results=output_results)
         self._lock = threading.Lock()
         self.cameras = load_camera_config(settings)
         self.monitor = monitor  # Reference to monitor for circuit breaker access

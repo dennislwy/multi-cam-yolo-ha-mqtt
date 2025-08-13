@@ -24,14 +24,14 @@ class Settings(BaseSettings):
     yolo_model_path: str = "yolov11m.pt"
     supported_classes: List[str] = ["person", "dog"]
     input_size: int = 640
-    confidence_threshold: float = Field(default=0.7, ge=0.5, le=1.0)
+    confidence_threshold: float = Field(default=0.7, ge=0.1, le=1.0)
     device: str = Field(
         default="cpu", description="Device for YOLO inference (cpu, cuda, mps, etc.)"
     )
 
     # System Configuration
     device_name: str = "yolo_camera"
-    log_file: str = "log/camera_monitor.log"
+    log_file: str = "log/yolo_camera.log"
     log_level: str = "INFO"
     rtsp_timeout: int = Field(default=10, ge=1, le=60)
     cycle_delay: int = Field(default=60, ge=1, le=3600)
@@ -144,57 +144,3 @@ def get_settings() -> Settings:
     except Exception as e:
         print(f"Configuration error: {e}")
         sys.exit(1)
-
-
-def create_example_env_file():
-    """Create an example .env file"""
-    example_content = """# Multi-Camera YOLO Detection Configuration
-
-# MQTT Configuration
-MQTT_BROKER=127.0.0.1
-MQTT_PORT=1883
-MQTT_USERNAME=
-MQTT_PASSWORD=
-DISCOVERY_PREFIX=homeassistant
-
-# YOLO Model Configuration
-YOLO_MODEL_PATH=yolov11m.pt
-INPUT_SIZE=640
-CONFIDENCE_THRESHOLD=0.7
-SUPPORTED_CLASSES=person,dog
-DEVICE=cpu
-
-# System Configuration
-LOG_FILE=/var/log/camera_monitor.log
-LOG_LEVEL=INFO
-RTSP_TIMEOUT=10
-CYCLE_DELAY=60
-
-# Performance Configuration
-ENABLE_PARALLEL_PROCESSING=true
-FRAME_SKIP_SIMILARITY_THRESHOLD=0.95
-MAX_DETECTION_OBJECTS=50
-
-# Camera Configuration
-CAMERA_COUNT=3
-
-# Camera 1
-CAMERA_1_NAME=Front Door
-CAMERA_1_RTSP_URL=rtsp://administrator:password@192.168.0.5:554/stream1
-CAMERA_1_ENABLED=true
-
-# Camera 2
-CAMERA_2_NAME=Backyard
-CAMERA_2_RTSP_URL=rtsp://administrator:password@192.168.0.6:554/stream1
-CAMERA_2_ENABLED=true
-
-# Camera 3
-CAMERA_3_NAME=Living Room
-CAMERA_3_RTSP_URL=rtsp://administrator:password@192.168.0.7:554/stream1
-CAMERA_3_ENABLED=false
-"""
-
-    with open(".env.example", "w", encoding="utf-8") as f:
-        f.write(example_content)
-
-    print("Created .env.example file. Copy it to .env and modify with your settings.")
