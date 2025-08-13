@@ -7,6 +7,7 @@ Main entry point for the application
 import argparse
 import logging
 import os
+import shutil
 import sys
 import time
 from logging.handlers import TimedRotatingFileHandler
@@ -18,7 +19,7 @@ from dotenv import load_dotenv
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-from config import create_example_env_file, get_settings
+from config import get_settings
 from monitor import MultiCameraMonitor
 
 
@@ -64,6 +65,22 @@ def setup_logging(settings):
     )
 
 
+def clean_output_folder():
+    """Clean the output folder of any existing files"""
+    output_dir = Path("output")
+    if output_dir.exists():
+        try:
+            shutil.rmtree(output_dir)
+            logger = logging.getLogger(__name__)
+            logger.info("Cleaned output folder")
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.warning("Failed to clean output folder: %s", e)
+
+    # Create the output directory
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+
 def main():
     """Main application entry point"""
     parser = argparse.ArgumentParser(
@@ -77,7 +94,6 @@ Examples:
   %(prog)s --test --camera "Front Door"  # Test specific camera
   %(prog)s --validate                # Validate camera connections
   %(prog)s --status                  # Show system status
-  %(prog)s --create-env              # Create example .env file
         """,
     )
 
@@ -89,9 +105,6 @@ Examples:
         help="Run single detection cycle (for cron or testing)",
     )
     parser.add_argument(
-        "--create-env", action="store_true", help="Create example .env file"
-    )
-    parser.add_argument(
         "--camera", type=str, help="Test specific camera by name (use with --test)"
     )
     parser.add_argument(
@@ -101,18 +114,18 @@ Examples:
     parser.add_argument(
         "--setup-ha", action="store_true", help="Setup Home Assistant discovery only"
     )
+    parser.add_argument(
+        "--output-results",
+        "-o",
+        action="store_true",
+        help="Save detected result images to 'output' folder when objects are detected",
+    )
 
     args = parser.parse_args()
-
-    # Handle special commands that don't require full setup
-    if args.create_env:
-        create_example_env_file()
-        return 0
 
     # Check if .env file exists
     if not os.path.exists(".env"):
         print("❌ .env file not found.")
-        print("Run with --create-env to create an example file.")
         return 1
 
     # Load settings and setup logging
@@ -129,9 +142,16 @@ Examples:
         print(f"❌ Configuration error: {e}")
         return 1
 
+    # Clean output folder if --output-results flag is used
+    if args.output_results:
+        clean_output_folder()
+        logger.info(
+            "Output results mode enabled - images will be saved to 'output' folder"
+        )
+
     # Initialize monitor
     try:
-        monitor = MultiCameraMonitor(settings)
+        monitor = MultiCameraMonitor(settings, output_results=args.output_results)
         logger.info("Monitor initialized with %s cameras", len(monitor.cameras))
 
     except Exception as e:

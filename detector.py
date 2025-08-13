@@ -6,8 +6,10 @@ import logging
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import cv2
 import numpy as np
 from ultralytics import YOLO
 
@@ -19,13 +21,15 @@ logger = logging.getLogger(__name__)
 class YOLODetector:
     """Handles YOLO model operations and object detection"""
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, output_results: bool = False):
         """Initialize the YOLO detector with configurable device settings.
 
         Args:
             settings (Settings): Configuration settings including device specification.
+            output_results (bool): Whether to save detected result images to output folder.
         """
         self.settings = settings
+        self.output_results = output_results
         self.model = None
         self._class_ids = None  # Cache for supported class IDs
         self.setup_model()
@@ -151,6 +155,10 @@ class YOLODetector:
                 summary_text,
             )
 
+            # Save rendered image if output_results is enabled and objects were detected
+            if self.output_results and detections["total_objects"] > 0:
+                self._save_detection_image(frame, camera, detections)
+
             return detections
 
         except Exception as e:
@@ -229,3 +237,162 @@ class YOLODetector:
             logger.info("Available model classes: %s", model_classes)
 
         return unsupported
+
+    def _save_detection_image(
+        self, frame: np.ndarray, camera: dict, detections: Dict[str, Any]
+    ):
+        """
+        Save rendered detection image to output folder
+
+        Args:
+            frame: Original image frame
+            camera: Camera configuration dictionary
+            detections: Detection results dictionary
+        """
+        try:
+            # Create output directory if it doesn't exist
+            output_dir = Path("output")
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Generate filename with unique_id and timestamp
+            camera_name = camera["name"].replace(" ", "_").lower()
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            filename = f"{camera_name}-{timestamp}.png"
+            filepath = output_dir / filename
+
+            # Create a copy of the frame for rendering
+            rendered_frame = frame.copy()
+
+            # Draw bounding boxes and labels using already processed detections
+            for detection in detections["detections"]:
+                class_name = detection["class"]
+                confidence = detection["confidence"]
+                x1, y1, x2, y2 = detection["bbox"]
+                x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+
+                # Draw bounding box
+                cv2.rectangle(rendered_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+                # Draw label with class name and confidence
+                label = f"{class_name}: {confidence:.2f}"
+                font_scale = 1.5
+                thickness = 2  # Keep thickness at 2
+                label_size = cv2.getTextSize(
+                    label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness
+                )[0]
+
+                # Draw label background with more padding
+                padding = 5
+                cv2.rectangle(
+                    rendered_frame,
+                    (x1, y1 - label_size[1] - padding * 2),
+                    (x1 + label_size[0] + padding, y1),
+                    (0, 255, 0),
+                    -1,
+                )
+
+                # Draw label text with larger font
+                cv2.putText(
+                    rendered_frame,
+                    label,
+                    (x1 + padding // 2, y1 - padding),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    font_scale,  # Larger font scale
+                    (0, 0, 0),  # Black text
+                    thickness,
+                )
+
+            # Save the rendered image
+            success = cv2.imwrite(str(filepath), rendered_frame)
+
+            if success:
+                logger.info("Saved detection image: %s", filename)
+            else:
+                logger.error("Failed to save detection image: %s", filename)
+
+        except Exception as e:
+            logger.error("Error saving detection image for '%s': %s", camera["name"], e)
+
+    def _save_detection_image2(
+        self, frame: np.ndarray, results, camera: dict, detections: Dict[str, Any]
+    ):
+        """
+        Save rendered detection image to output folder
+
+        Args:
+            frame: Original image frame
+            results: YOLO detection results
+            camera: Camera configuration dictionary
+            detections: Detection results dictionary
+        """
+        try:
+            # Create output directory if it doesn't exist
+            output_dir = Path("output")
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Generate filename with unique_id and timestamp
+            camera_name = camera["name"].replace(" ", "_").lower()
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            filename = f"{camera_name}-{timestamp}.png"
+            filepath = output_dir / filename
+
+            # Create a copy of the frame for rendering
+            rendered_frame = frame.copy()
+
+            # Draw bounding boxes and labels on the image
+            for result in results:
+                boxes = result.boxes
+                if boxes is not None:
+                    for box in boxes:
+                        # Get class name and confidence
+                        class_id = int(box.cls[0])
+                        class_name = self.model.names[class_id]
+                        confidence = float(box.conf[0])
+
+                        # Only render supported classes
+                        if class_name in self.settings.supported_classes:
+                            # Get bounding box coordinates
+                            x1, y1, x2, y2 = box.xyxy[0].tolist()
+                            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+
+                            # Draw bounding box
+                            cv2.rectangle(
+                                rendered_frame, (x1, y1), (x2, y2), (0, 255, 0), 2
+                            )
+
+                            # Draw label with class name and confidence
+                            label = f"{class_name}: {confidence:.2f}"
+                            label_size = cv2.getTextSize(
+                                label, cv2.FONT_HERSHEY_SIMPLEX, 1, 4
+                            )[0]
+
+                            # Draw label background
+                            cv2.rectangle(
+                                rendered_frame,
+                                (x1, y1 - label_size[1] - 10),
+                                (x1 + label_size[0], y1),
+                                (0, 255, 0),
+                                -1,
+                            )
+
+                            # Draw label text
+                            cv2.putText(
+                                rendered_frame,
+                                label,
+                                (x1, y1 - 5),
+                                cv2.FONT_HERSHEY_SIMPLEX,
+                                0.5,
+                                (0, 0, 0),
+                                2,
+                            )
+
+            # Save the rendered image
+            success = cv2.imwrite(str(filepath), rendered_frame)
+
+            if success:
+                logger.info("Saved detection image: %s", filename)
+            else:
+                logger.error("Failed to save detection image: %s", filename)
+
+        except Exception as e:
+            logger.error("Error saving detection image for '%s': %s", camera["name"], e)

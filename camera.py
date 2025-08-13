@@ -243,6 +243,10 @@ class CameraHandler:
                 Returns (True, frame) on success, (False, None) on failure.
         """
         logger.debug("Start to capture frame from '%s'", camera["name"])
+
+        # Flush buffer to get most recent frame
+        self._flush_buffer(cap, camera["name"], 30)
+
         # Initial frame read attempt
         ret, frame = cap.read()
         if ret:
@@ -305,3 +309,22 @@ class CameraHandler:
         )
 
         return False, None
+
+    def _flush_buffer(
+        self, cap: cv2.VideoCapture, camera_name: str, flush_count: int = 5
+    ):
+        """Flush old frames from buffer to get most recent frame.
+
+        Args:
+            cap: VideoCapture object
+            camera_name: Camera name for logging
+            flush_count: Number of frames to flush (default 5)
+        """
+        try:
+            for i in range(flush_count):
+                ret, _ = cap.read()
+                if not ret:
+                    break
+            logger.debug("Flushed %d frames from buffer for '%s'", i + 1, camera_name)
+        except Exception as e:
+            logger.warning("Error flushing buffer for '%s': %s", camera_name, e)
