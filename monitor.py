@@ -40,10 +40,14 @@ class MultiCameraMonitor:
         self.camera_circuit_breaker_times = {}
 
         # Threshold before activating circuit breaker
-        self.max_consecutive_failures = 3
+        self.max_consecutive_failures = (
+            settings.circuit_breaker_max_consecutive_failures
+        )
 
         # Time to wait before attempting recovery (in minutes)
-        self.circuit_breaker_recovery_minutes = 30
+        self.circuit_breaker_recovery_minutes = (
+            settings.circuit_breaker_recovery_minutes
+        )
 
         if not self.cameras:
             logger.error("No cameras configured. Exiting.")

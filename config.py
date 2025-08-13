@@ -31,7 +31,7 @@ class Settings(BaseSettings):
 
     # System Configuration
     device_name: str = "yolo_camera"
-    log_file: str = "/var/log/camera_monitor.log"
+    log_file: str = "log/camera_monitor.log"
     log_level: str = "INFO"
     rtsp_timeout: int = Field(default=10, ge=1, le=60)
     cycle_delay: int = Field(default=60, ge=1, le=3600)
@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     enable_parallel_processing: bool = True
     frame_skip_similarity_threshold: float = Field(default=0.95, ge=0.0, le=1.0)
     max_detection_objects: int = Field(default=10, ge=1, le=100)
+    circuit_breaker_max_consecutive_failures: int = Field(default=3, ge=1, le=10)
+    circuit_breaker_recovery_minutes: int = Field(default=30, ge=1, le=120)
 
     # Camera Configuration
     camera_count: int = Field(ge=1)
