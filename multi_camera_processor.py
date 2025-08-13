@@ -129,9 +129,7 @@ class MultiCameraProcessor:
             return results
 
         # Determine optimal number of workers
-        max_workers = min(
-            4, len(cameras_to_process), self.settings.max_concurrent_cameras
-        )
+        max_workers = min(4, len(cameras_to_process))
 
         logger.debug(
             "Processing %d cameras with %d workers (%d skipped due to circuit breaker)",

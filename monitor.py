@@ -168,7 +168,7 @@ class MultiCameraMonitor:
                 # Return True because camera/detection worked, only MQTT failed
                 detection_time = time.time() - start_time
                 logger.info(
-                    "Detection cycle completed for '%s' in %.2f seconds (MQTT publish failed)",
+                    "Detection cycle completed for '%s' in %.2f seconds (but MQTT publish failed)",
                     camera["name"],
                     detection_time,
                 )

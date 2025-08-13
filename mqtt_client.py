@@ -100,19 +100,20 @@ class MQTTHandler:
             topics = self.get_camera_topics(camera)
 
             config = {
-                "name": "Detection",
+                "name": "Object Detected",
                 "unique_id": topics["unique_id"],
                 "state_topic": topics["state_topic"],
                 "value_template": "{{ value_json.total_objects }}",
                 "json_attributes_topic": topics["state_topic"],
                 "json_attributes_template": "{{ value_json | tojson }}",
+                "unit_of_measurement": "objects",
+                "state_class": "measurement",
                 "device": {
                     "identifiers": [f"{self.settings.device_name}_{camera['id']}"],
                     "name": f"YOLO {camera['name']}",
                     "model": "multi-cam-yolo-ha-mqtt",
                     "manufacturer": "Dennis Lee",
                     "sw_version": "1.0.2508.1310",
-                    "support_url": "https://github.com/dennislwy/multi-cam-yolo-ha-mqtt",
                 },
                 "icon": "mdi:camera-account",
             }
@@ -189,19 +190,6 @@ class MQTTHandler:
         except Exception as e:
             logger.error("Error publishing to MQTT for '%s': %s", camera["name"], e)
             return False
-
-    def publish_detection(self, detections: Dict[str, Any], camera: dict) -> bool:
-        """
-        Alias for publish_detection_results for backward compatibility
-
-        Args:
-            detections: Detection results dictionary
-            camera: Camera configuration dictionary
-
-        Returns:
-            True if successful, False otherwise
-        """
-        return self.publish_detection_results(detections, camera)
 
     def test_connection(self) -> bool:
         """

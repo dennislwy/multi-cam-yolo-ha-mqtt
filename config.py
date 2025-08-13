@@ -37,7 +37,6 @@ class Settings(BaseSettings):
     cycle_delay: int = Field(default=60, ge=1, le=3600)
 
     # Performance Configuration
-    max_concurrent_cameras: int = Field(default=4, ge=1, le=8)
     enable_parallel_processing: bool = True
     frame_skip_similarity_threshold: float = Field(default=0.95, ge=0.0, le=1.0)
     max_detection_objects: int = Field(default=10, ge=1, le=100)
@@ -172,7 +171,6 @@ RTSP_TIMEOUT=10
 CYCLE_DELAY=60
 
 # Performance Configuration
-MAX_CONCURRENT_CAMERAS=4
 ENABLE_PARALLEL_PROCESSING=true
 FRAME_SKIP_SIMILARITY_THRESHOLD=0.95
 MAX_DETECTION_OBJECTS=50
