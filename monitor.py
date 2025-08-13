@@ -60,7 +60,7 @@ class MultiCameraMonitor:
 
         # Initialize parallel processor if enabled and multiple cameras are available
         if settings.enable_parallel_processing and len(self.cameras) > 1:
-            self.processor = MultiCameraProcessor(settings)
+            self.processor = MultiCameraProcessor(settings, monitor=self)
             logger.info("Parallel processing enabled for %d cameras", len(self.cameras))
         else:
             self.processor = None
@@ -132,7 +132,7 @@ class MultiCameraMonitor:
             else:
                 # Camera is still in circuit breaker cooldown period
                 logger.info(
-                    "Camera '%s' is in circuit breaker state, skipping for another %.1fmin",
+                    "Camera '%s' is in circuit breaker state, skipping (%.1fmin remaining)",
                     camera["name"],
                     self._recovery_time_remaining(camera_id) / 60,
                 )
@@ -154,14 +154,26 @@ class MultiCameraMonitor:
                 self._record_camera_failure(camera_id, camera["name"])
                 return False
 
+            # Camera and detection successful - reset failure tracking
+            self._reset_camera_failures(camera_id, camera["name"])
+
             # Step 3: Publish detection results to MQTT for Home Assistant
+            # MQTT failures should NOT trigger camera circuit breaker
             success = self.mqtt_handler.publish_detection_results(detections, camera)
             if not success:
-                logger.warning("Failed to publish results for '%s'", camera["name"])
-                return False
+                logger.warning(
+                    "Failed to publish MQTT results for '%s' (camera still operational)",
+                    camera["name"],
+                )
+                # Return True because camera/detection worked, only MQTT failed
+                detection_time = time.time() - start_time
+                logger.info(
+                    "Detection cycle completed for '%s' in %.2f seconds (MQTT publish failed)",
+                    camera["name"],
+                    detection_time,
+                )
+                return True
 
-            # Reset failure tracking on successful completion of full cycle
-            self._reset_camera_failures(camera_id, camera["name"])
             detection_time = time.time() - start_time
             logger.info(
                 "Detection cycle completed for '%s' in %.2f seconds",
@@ -315,6 +327,7 @@ class MultiCameraMonitor:
             try:
                 results = self.processor.process_all_cameras_parallel()
                 successful_cameras = 0
+                mqtt_failures = 0
 
                 # Process each parallel result and publish to MQTT
                 for result in results:
@@ -329,14 +342,17 @@ class MultiCameraMonitor:
                             None,
                         )
                         if camera:
+                            # Camera/detection was successful, count it regardless of MQTT
+                            successful_cameras += 1
+
                             # Publish detection results to MQTT broker
-                            if self.mqtt_handler.publish_detection_results(
+                            # MQTT failures don't affect camera success count
+                            if not self.mqtt_handler.publish_detection_results(
                                 result, camera
                             ):
-                                successful_cameras += 1
-                            else:
+                                mqtt_failures += 1
                                 logger.warning(
-                                    "Failed to publish detection for '%s'",
+                                    "Failed to publish MQTT results for '%s' (camera detection successful)",
                                     result.get("camera_name", "unknown"),
                                 )
                         else:
@@ -344,14 +360,24 @@ class MultiCameraMonitor:
                                 "Camera config not found for result: '%s'",
                                 result.get("camera_name", "unknown"),
                             )
+                    # Note: Failed cameras (None results) are already handled in the worker
 
                 elapsed_time = time.time() - start_time
-                logger.info(
-                    "Parallel detection cycle completed: %s/%s cameras successful in %.1fs",
-                    successful_cameras,
-                    len(self.cameras),
-                    elapsed_time,
-                )
+                if mqtt_failures > 0:
+                    logger.info(
+                        "Parallel detection cycle completed: %s/%s cameras successful, %s MQTT failures in %.1fs",
+                        successful_cameras,
+                        len(self.cameras),
+                        mqtt_failures,
+                        elapsed_time,
+                    )
+                else:
+                    logger.info(
+                        "Parallel detection cycle completed: %s/%s cameras successful in %.1fs",
+                        successful_cameras,
+                        len(self.cameras),
+                        elapsed_time,
+                    )
 
                 return successful_cameras > 0
 

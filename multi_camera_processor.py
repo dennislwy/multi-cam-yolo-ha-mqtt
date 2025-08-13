@@ -6,11 +6,14 @@ import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from camera import CameraHandler
 from config import Settings, load_camera_config
 from detector import YOLODetector
+
+if TYPE_CHECKING:
+    from monitor import MultiCameraMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -18,12 +21,15 @@ logger = logging.getLogger(__name__)
 class MultiCameraProcessor:
     """Handles parallel processing of multiple cameras"""
 
-    def __init__(self, settings: Settings):
+    def __init__(
+        self, settings: Settings, monitor: Optional["MultiCameraMonitor"] = None
+    ):
         self.settings = settings
         self.camera_handler = CameraHandler(settings)
         self.detector = YOLODetector(settings)
         self._lock = threading.Lock()
         self.cameras = load_camera_config(settings)
+        self.monitor = monitor  # Reference to monitor for circuit breaker access
 
     def process_camera_worker(self, camera: dict) -> Optional[Dict[str, Any]]:
         """
@@ -35,18 +41,53 @@ class MultiCameraProcessor:
         Returns:
             Detection results or None if failed
         """
+        camera_id = camera["id"]
+
+        # Check circuit breaker if monitor is available
+        if self.monitor and self.monitor._is_camera_in_circuit_breaker(camera_id):
+            if self.monitor._should_attempt_recovery(camera_id):
+                logger.info(
+                    "Attempting recovery for camera '%s' after circuit breaker timeout",
+                    camera["name"],
+                )
+                self.monitor._reset_circuit_breaker(camera_id)
+            else:
+                # Camera is still in circuit breaker cooldown period
+                logger.info(
+                    "Camera '%s' is in circuit breaker state, skipping (%.1fmin remaining)",
+                    camera["name"],
+                    self.monitor._recovery_time_remaining(camera_id) / 60,
+                )
+                return None
+
         try:
             # Capture frame
             frame = self.camera_handler.capture_frame_from_rtsp(camera)
             if frame is None:
+                # Record failure if monitor is available
+                if self.monitor:
+                    self.monitor._record_camera_failure(camera_id, camera["name"])
                 return None
 
             # Run detection
             result = self.detector.detect_objects(frame, camera)
+            if result is None:
+                # Record failure if monitor is available
+                if self.monitor:
+                    self.monitor._record_camera_failure(camera_id, camera["name"])
+                return None
+
+            # Reset failures on success if monitor is available
+            if self.monitor:
+                self.monitor._reset_camera_failures(camera_id, camera["name"])
+
             return result
 
         except Exception as e:
             logger.error("Error processing camera '%s': %s", camera["name"], e)
+            # Record failure if monitor is available
+            if self.monitor:
+                self.monitor._record_camera_failure(camera_id, camera["name"])
             return None
 
     def process_all_cameras_parallel(self) -> List[Dict[str, Any]]:
@@ -59,20 +100,51 @@ class MultiCameraProcessor:
         start_time = time.time()
         results = []
 
+        # Filter out cameras in circuit breaker state if monitor is available
+        cameras_to_process = []
+        if self.monitor:
+            for camera in self.cameras:
+                if self.monitor._is_camera_in_circuit_breaker(camera["id"]):
+                    if self.monitor._should_attempt_recovery(camera["id"]):
+                        logger.info(
+                            "Including camera '%s' for recovery attempt after circuit breaker timeout",
+                            camera["name"],
+                        )
+                        cameras_to_process.append(camera)
+                    else:
+                        logger.debug(
+                            "Skipping camera '%s' in circuit breaker state (%.1fmin remaining)",
+                            camera["name"],
+                            self.monitor._recovery_time_remaining(camera["id"]) / 60,
+                        )
+                else:
+                    cameras_to_process.append(camera)
+        else:
+            cameras_to_process = self.cameras
+
+        if not cameras_to_process:
+            logger.warning(
+                "No cameras available for processing (all in circuit breaker state)"
+            )
+            return results
+
         # Determine optimal number of workers
-        max_workers = min(4, len(self.cameras), self.settings.max_concurrent_cameras)
+        max_workers = min(
+            4, len(cameras_to_process), self.settings.max_concurrent_cameras
+        )
 
         logger.debug(
-            "Processing %d cameras with %d workers",
-            len(self.cameras),
+            "Processing %d cameras with %d workers (%d skipped due to circuit breaker)",
+            len(cameras_to_process),
             max_workers,
+            len(self.cameras) - len(cameras_to_process),
         )
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit all camera processing tasks
             future_to_camera = {
                 executor.submit(self.process_camera_worker, camera): camera
-                for camera in self.cameras
+                for camera in cameras_to_process
             }
 
             # Collect results as they complete
@@ -90,10 +162,11 @@ class MultiCameraProcessor:
 
         total_time = time.time() - start_time
         logger.info(
-            "Completed processing %d cameras in %.2fs (avg %.2fs per camera)",
-            len(self.cameras),
+            "Completed processing %d cameras in %.2fs (avg %.2fs per camera, %d total configured)",
+            len(cameras_to_process),
             total_time,
-            total_time / len(self.cameras) if self.cameras else 0,
+            total_time / len(cameras_to_process) if cameras_to_process else 0,
+            len(self.cameras),
         )
 
         return results
