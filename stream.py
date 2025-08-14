@@ -63,17 +63,30 @@ class RTSPVideoStream:
         rtsp_url (str): The RTSP URL to connect to.
         reconnect_delay (int): Delay in seconds between reconnection attempts.
         max_reconnect_attempts (int): Maximum number of reconnection attempts (-1 for unlimited).
-        _reconnect_count (int): Current number of reconnection attempts.
-        _cap (cv2.VideoCapture): OpenCV VideoCapture object.
-        _frame (numpy.ndarray): Latest frame from the stream.
-        _stopped (bool): Flag to control the reading thread.
-        _thread (threading.Thread): Background thread for frame reading.
-        _lock (threading.Lock): Thread lock for frame access synchronization.
-        _recording (bool): Flag to indicate if recording is active.
-        _video_writer (cv2.VideoWriter): OpenCV VideoWriter for recording.
-        _recording_lock (threading.Lock): Thread lock for recording synchronization.
-        _recording_start_time (datetime): Timestamp when recording started.
-        _current_recording_path (str): Path to the current recording file.
+        target_fps (float): Target frame rate for the stream (capped at MAX_FPS).
+        frame_interval (float): Calculated interval between frames based on target_fps.
+        enable_frame_skip (bool): Whether to enable frame skipping for CPU optimization.
+
+        # Private Stream Management Attributes:
+        _reconnect_count (int): Current number of reconnection attempts made.
+        _cap (cv2.VideoCapture): OpenCV VideoCapture object for stream connection.
+        _frame (numpy.ndarray): Latest frame read from the stream (thread-safe).
+        _stopped (bool): Flag to control the background reading thread lifecycle.
+        _thread (threading.Thread): Background daemon thread for continuous frame reading.
+        _lock (threading.Lock): Thread lock ensuring frame access synchronization.
+
+        # CPU Optimization Attributes:
+        _frame_count (int): Total number of frames processed (for performance monitoring).
+        _last_frame_time (float): Timestamp of the last successfully read frame.
+        _skip_counter (int): Counter for frame skipping logic to reduce CPU load.
+
+        # Recording Management Attributes:
+        _recording (bool): Flag indicating if video recording is currently active.
+        _video_writer (cv2.VideoWriter): OpenCV VideoWriter object for recording.
+        _recording_lock (threading.Lock): Thread lock for recording operation synchronization.
+        _recording_start_time (datetime): Timestamp when current recording session started.
+        _current_recording_path (str): Full file path of the current recording file.
+
     """
 
     TIMEOUT_CONNECT = 10000
@@ -608,7 +621,7 @@ class RTSPVideoStream:
                 sleep_time = self.frame_interval - (
                     current_time - self._last_frame_time
                 )
-                time.sleep(max(0.01, sleep_time))  # Minimum 10ms sleep
+                time.sleep(max(0.001, sleep_time))  # Minimum 1ms sleep
                 continue
 
             # Frame skipping for additional CPU savings
