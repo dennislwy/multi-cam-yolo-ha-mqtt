@@ -78,11 +78,18 @@ class RTSPVideoStream:
 
     TIMEOUT_CONNECT = 10000
     TIMEOUT_READ = 5000
-    DEFAULT_FPS = 20.0
+    DEFAULT_FPS = 10.0
+    MAX_FPS = 15.0
+    FRAME_SKIP = 2  # Skip frames to reduce load
 
     def __init__(
-        self, rtsp_url: str, reconnect_delay: int = 5, max_reconnect_attempts: int = -1
-    ) -> None:
+        self,
+        rtsp_url: str,
+        reconnect_delay: int = 5,
+        max_reconnect_attempts: int = -1,
+        target_fps: float = 10.0,
+        enable_frame_skip: bool = True,
+    ):
         """Initialize the VideoStream object.
 
         Args:
@@ -91,11 +98,18 @@ class RTSPVideoStream:
                 attempts. Defaults to 5.
             max_reconnect_attempts (int, optional): Maximum number of reconnection
                 attempts. Use -1 for unlimited attempts. Defaults to -1.
+            target_fps (float): Target frame rate (lower = less CPU usage)
+            enable_frame_skip (bool): Skip frames to reduce processing load
         """
         if not rtsp_url or not isinstance(rtsp_url, str):
             raise ValueError("rtsp_url must be a non-empty string")
         if reconnect_delay < 0:
             raise ValueError("reconnect_delay must be non-negative")
+
+        # Limit FPS
+        self.target_fps = min(target_fps, self.MAX_FPS)
+        self.frame_interval = 1.0 / self.target_fps if self.target_fps > 0 else 0.1
+        self.enable_frame_skip = enable_frame_skip
 
         self.rtsp_url = rtsp_url
         self.reconnect_delay = reconnect_delay
@@ -105,6 +119,11 @@ class RTSPVideoStream:
         self._frame = None
         self._stopped = False
         self._thread = None
+
+        # CPU optimization counters
+        self._frame_count = 0
+        self._last_frame_time = 0
+        self._skip_counter = 0
 
         # Thread lock to ensure frame access is thread-safe
         self._lock = threading.Lock()
@@ -270,8 +289,8 @@ class RTSPVideoStream:
         self,
         filename: Optional[str] = None,
         directory: str = "recordings",
-        codec: str = "mp4v",
-        fps: float = DEFAULT_FPS,
+        codec: str = "H254",
+        fps: Optional[float] = None,
         max_duration: Optional[int] = None,
     ) -> Optional[str]:
         """Start recording the video stream to a file.
@@ -291,8 +310,15 @@ class RTSPVideoStream:
         Raises:
             RuntimeError: If recording is already in progress or no frame is available.
         """
-        if not 1.0 <= fps <= 60.0:
-            raise ValueError("FPS must be between 1.0 and 60.0")
+        # Use target FPS if not specified
+        if fps is None:
+            fps = self.target_fps
+
+        # Validate FPS for RPi
+        fps = min(fps, self.MAX_FPS)
+
+        if not 1.0 <= fps <= self.MAX_FPS:
+            raise ValueError(f"FPS must be between 1.0 and {self.MAX_FPS}.")
 
         with self._recording_lock:
             if self._recording:
@@ -320,13 +346,13 @@ class RTSPVideoStream:
                 camera_id = "".join(
                     c for c in camera_id if c.isalnum() or c in ("-", "_")
                 )
-                filename = f"{camera_id}_{timestamp}.avi"
+                filename = f"{camera_id}_{timestamp}.mp4"
 
             # Ensure filename has proper extension
             if not any(
                 filename.lower().endswith(ext) for ext in [".avi", ".mp4", ".mov"]
             ):
-                filename += ".avi"
+                filename += ".mp4"
 
             # Full path for the recording
             self._current_recording_path = os.path.join(directory, filename)
@@ -334,8 +360,12 @@ class RTSPVideoStream:
             # Get frame dimensions
             height, width = current_frame.shape[:2]
 
-            # Define the codec and create VideoWriter object
-            fourcc = cv2.VideoWriter_fourcc(*codec)
+            # Use H264 codec for better RPi performance
+            if codec == "H264":
+                fourcc = cv2.VideoWriter_fourcc(*"H264")
+            else:
+                fourcc = cv2.VideoWriter_fourcc(*codec)
+
             self._video_writer = cv2.VideoWriter(
                 self._current_recording_path, fourcc, fps, (width, height)
             )
@@ -503,15 +533,24 @@ class RTSPVideoStream:
             # Set buffer size to 1 to minimize latency and get most recent frames
             self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
+            # Reduce resolution if possible to save CPU
+            # Try to set a lower resolution
+            self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+            # Limit FPS at source if supported
+            self._cap.set(cv2.CAP_PROP_FPS, self.target_fps)
+
             # Read initial frame to validate the stream is providing data
             ret, frame = self._cap.read()
-            if not ret:
+            if not ret or frame is None:
                 logger.error("Could not read initial frame from stream")
                 return False
 
             # Store the initial frame thread-safely
             with self._lock:
                 self._frame = frame
+
             logger.info("Successfully connected to stream '%s'", self.rtsp_url)
             return True
 
@@ -534,73 +573,97 @@ class RTSPVideoStream:
         - Recording frames when recording is active
         """
         while not self._stopped:
-            # Check if connection is lost or not established
+            loop_start = time.time()
+
+            # Check connection
             if not self._cap or not self._cap.isOpened():
-                # Enforce reconnection attempt limits if configured
                 if (
                     self.max_reconnect_attempts > 0
                     and self._reconnect_count >= self.max_reconnect_attempts
                 ):
-                    logger.warning(
-                        "Max reconnection attempts (%d) reached. Stopping.",
-                        self.max_reconnect_attempts,
-                    )
+                    logger.warning("Max reconnection attempts reached. Stopping.")
                     self._stopped = True
                     break
 
                 logger.warning(
-                    "Stream lost. Attempting to reconnect... (attempt %d)",
+                    "Stream lost. Reconnecting... (attempt %d)",
                     self._reconnect_count + 1,
                 )
 
-                # Clean up existing connection before reconnecting
                 if self._cap:
                     self._cap.release()
 
-                # Attempt reconnection
                 if self._connect():
-                    self._reconnect_count = 0  # Reset counter on successful connection
-                    logger.info(
-                        "Successfully reconnected to stream '%s'", self.rtsp_url
-                    )
+                    self._reconnect_count = 0
+                    logger.info("Reconnected successfully")
                 else:
-                    # Increment counter and wait before next attempt
                     self._reconnect_count += 1
                     time.sleep(self.reconnect_delay)
                 continue
 
-            # Attempt to read a frame from the stream
-            ret, frame = self._cap.read()
+            # Frame rate limiting
+            current_time = time.time()
+            if current_time - self._last_frame_time < self.frame_interval:
+                # Sleep to maintain target FPS and reduce CPU load
+                sleep_time = self.frame_interval - (
+                    current_time - self._last_frame_time
+                )
+                time.sleep(max(0.01, sleep_time))  # Minimum 10ms sleep
+                continue
 
-            if ret:
-                # Add frame validation before storing
-                if frame is not None and frame.size > 0:
-                    # Successfully read frame - store it thread-safely
-                    with self._lock:
-                        self._frame = frame
+            # Frame skipping for additional CPU savings
+            if self.enable_frame_skip:
+                self._skip_counter += 1
+                if self._skip_counter < self.FRAME_SKIP:
+                    # Read and discard frame to keep buffer fresh
+                    try:
+                        self._cap.read()
+                    except:
+                        pass
+                    continue
+                self._skip_counter = 0
 
-                    # Write frame to recording if active
+            # Read frame
+            try:
+                ret, frame = self._cap.read()
+            except Exception as e:
+                logger.warning("Frame read exception: %s", e)
+                ret, frame = False, None
+
+            if ret and frame is not None and frame.size > 0:
+                # Update frame thread-safely
+                with self._lock:
+                    self._frame = frame
+
+                # Recording (only if active to save CPU)
+                if self._recording:
                     with self._recording_lock:
-                        if self._recording and self._video_writer is not None:
+                        if self._video_writer is not None:
                             try:
                                 self._video_writer.write(frame)
                             except Exception as e:
-                                logger.error("Error writing frame to recording: %s", e)
+                                logger.error("Recording write error: %s", e)
 
-                    self._reconnect_count = 0  # Reset on successful read
-                else:
-                    logger.warning("Received invalid frame from stream")
+                self._reconnect_count = 0
+                self._frame_count += 1
+                self._last_frame_time = current_time
+
+                # Log performance every 100 frames
+                if self._frame_count % 100 == 0:
+                    logger.debug(
+                        "Processed %d frames, FPS: %.1f",
+                        self._frame_count,
+                        1.0 / (time.time() - loop_start),
+                    )
+
             else:
-                # Frame read failed - trigger reconnection sequence
-                logger.warning(
-                    "Failed to read frame from stream '%s'. Attempting to reconnect...",
-                    self.rtsp_url,
-                )
-
-                # Release the connection to trigger reconnection logic
+                logger.warning("Failed to read frame, will reconnect")
                 if self._cap:
                     self._cap.release()
                     self._cap = None
+
+            # Additional CPU relief
+            time.sleep(0.001)  # 1ms sleep to prevent 100% CPU usage
 
     def __enter__(self) -> "RTSPVideoStream":
         """Enter the context manager - start the stream.

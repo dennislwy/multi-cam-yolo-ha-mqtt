@@ -55,13 +55,13 @@ class MultiCameraMonitor:
             logger.error("No cameras configured. Exiting.")
             raise ValueError("No cameras configured")
 
-        # Initialize video streams for each camera
-        self.camera_streams: Dict[str, RTSPVideoStream] = {}
-        self._initialize_camera_streams()
-
         # Initialize core components for detection and MQTT communication
         self.detector = YOLODetector(settings, output_results=self.output_results)
         self.mqtt_handler = MQTTHandler(settings)
+
+        # Initialize video streams for each camera
+        self.camera_streams: Dict[str, RTSPVideoStream] = {}
+        self._initialize_camera_streams()
 
         # Initialize parallel processor if enabled and multiple cameras are available
         if settings.enable_parallel_processing and len(self.cameras) > 1:
