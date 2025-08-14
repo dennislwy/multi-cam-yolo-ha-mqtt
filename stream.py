@@ -42,6 +42,11 @@ class RTSPVideoStream:
             max_reconnect_attempts (int, optional): Maximum number of reconnection
                 attempts. Use -1 for unlimited attempts. Defaults to -1.
         """
+        if not rtsp_url or not isinstance(rtsp_url, str):
+            raise ValueError("rtsp_url must be a non-empty string")
+        if reconnect_delay < 0:
+            raise ValueError("reconnect_delay must be non-negative")
+
         self.rtsp_url = rtsp_url
         self.reconnect_delay = reconnect_delay
         self.max_reconnect_attempts = max_reconnect_attempts
