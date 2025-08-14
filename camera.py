@@ -194,7 +194,8 @@ class CameraHandler:
             Exception: Any errors during capture creation are caught and logged.
         """
         logging.debug("Creating capture for camera '%s'", camera["name"])
-        cap = cv2.VideoCapture(camera["rtsp_url"], cv2.CAP_FFMPEG)
+        url = camera["rtsp_url"] + "?fflags=nobuffer&flags=low_delay"
+        cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
 
         rtsp_timeout_ms = self.settings.rtsp_timeout * 1000
 
@@ -221,6 +222,7 @@ class CameraHandler:
                 return None
 
             return cap
+
         except Exception as e:
             # Cleanup on configuration failure
             cap.release()
@@ -245,7 +247,7 @@ class CameraHandler:
         logger.debug("Start to capture frame from '%s'", camera["name"])
 
         # Flush buffer to get most recent frame
-        self._flush_buffer(cap, camera["name"], 30)
+        self._flush_buffer(cap, camera["name"], 20)
 
         # Initial frame read attempt
         ret, frame = cap.read()
