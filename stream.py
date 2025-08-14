@@ -1,3 +1,44 @@
+"""
+RTSPVideoStream - Multi-threaded RTSP Stream Handler with Recording Capabilities
+
+This module provides a robust, thread-safe solution for handling RTSP video streams
+with automatic reconnection, snapshot capture, and video recording functionality.
+
+Author: Dennis Lee
+License: MIT
+
+Dependencies:
+    - opencv-python (cv2)
+    - numpy
+    - threading (built-in)
+    - logging (built-in)
+
+Example Usage:
+    Basic stream reading:
+        >>> stream = RTSPVideoStream("rtsp://user:pass@camera.ip/stream")
+        >>> stream.start()
+        >>> frame = stream.read()
+        >>> stream.stop()
+
+    Context manager (recommended):
+        >>> with RTSPVideoStream("rtsp://user:pass@camera.ip/stream") as stream:
+        ...     frame = stream.read()
+        ...     if frame is not None:
+        ...         cv2.imshow("Stream", frame)
+
+    Recording video:
+        >>> with RTSPVideoStream("rtsp://camera.ip/stream") as stream:
+        ...     # Record for 30 seconds
+        ...     path = stream.start_recording(max_duration=30)
+        ...     while stream.is_recording():
+        ...         time.sleep(1)
+
+    Taking snapshots:
+        >>> with RTSPVideoStream("rtsp://camera.ip/stream") as stream:
+        ...     snapshot_path = stream.save_snapshot()
+        ...     print(f"Saved to: {snapshot_path}")
+"""
+
 import logging
 import os
 import threading
@@ -28,7 +69,16 @@ class RTSPVideoStream:
         _stopped (bool): Flag to control the reading thread.
         _thread (threading.Thread): Background thread for frame reading.
         _lock (threading.Lock): Thread lock for frame access synchronization.
+        _recording (bool): Flag to indicate if recording is active.
+        _video_writer (cv2.VideoWriter): OpenCV VideoWriter for recording.
+        _recording_lock (threading.Lock): Thread lock for recording synchronization.
+        _recording_start_time (datetime): Timestamp when recording started.
+        _current_recording_path (str): Path to the current recording file.
     """
+
+    TIMEOUT_CONNECT = 10000
+    TIMEOUT_READ = 5000
+    DEFAULT_FPS = 20.0
 
     def __init__(
         self, rtsp_url: str, reconnect_delay: int = 5, max_reconnect_attempts: int = -1
@@ -58,6 +108,13 @@ class RTSPVideoStream:
 
         # Thread lock to ensure frame access is thread-safe
         self._lock = threading.Lock()
+
+        # Recording attributes
+        self._recording = False
+        self._video_writer = None
+        self._recording_lock = threading.Lock()
+        self._recording_start_time = None
+        self._current_recording_path = None
 
         # Attempt initial connection to validate the stream
         connect_success = self._connect()
@@ -105,9 +162,14 @@ class RTSPVideoStream:
 
         This method gracefully shuts down the stream by:
         - Setting the stop flag for the background thread
+        - Stopping any active recording
         - Waiting for the thread to finish (with timeout)
         - Releasing the OpenCV VideoCapture object
         """
+        # Stop any active recording first
+        if self._recording:
+            self.stop_recording()
+
         self._stopped = True
         # Wait for background thread to finish with timeout to prevent hanging
         if self._thread is not None and self._thread.is_alive():
@@ -134,24 +196,7 @@ class RTSPVideoStream:
             and self._cap.isOpened()
         )
 
-    def get_status(self) -> Dict[str, Union[bool, int]]:
-        """Get detailed status information about the stream.
-
-        Returns:
-            dict: A dictionary containing detailed status information with keys:
-                - 'running': Whether the stream is not stopped
-                - 'thread_alive': Whether the background thread is alive
-                - 'cap_opened': Whether the video capture is open
-                - 'reconnect_count': Number of reconnection attempts
-                - 'has_frame': Whether a frame is currently available
-        """
-        return {
-            "running": not self._stopped,
-            "thread_alive": self._thread is not None and self._thread.is_alive(),
-            "cap_opened": self._cap is not None and self._cap.isOpened(),
-            "reconnect_count": self._reconnect_count,
-            "has_frame": self._frame is not None,
-        }
+    # region Snapshot
 
     def save_snapshot(
         self, filename: Optional[str] = None, directory: str = "snapshots"
@@ -217,6 +262,217 @@ class RTSPVideoStream:
             logger.error("Exception while saving snapshot: %s", e)
             return None
 
+    # endregion
+
+    # region Recording
+
+    def start_recording(
+        self,
+        filename: Optional[str] = None,
+        directory: str = "recordings",
+        codec: str = "mp4v",
+        fps: float = DEFAULT_FPS,
+        max_duration: Optional[int] = None,
+    ) -> Optional[str]:
+        """Start recording the video stream to a file.
+
+        Args:
+            filename (str, optional): Custom filename for the recording. If None,
+                generates a timestamp-based filename.
+            directory (str, optional): Directory to save recordings. Defaults to "recordings".
+            codec (str, optional): Video codec to use. Defaults to "mp4v".
+            fps (float, optional): Frames per second for recording. Defaults to 20.0.
+            max_duration (int, optional): Maximum recording duration in seconds.
+                If None, records until manually stopped.
+
+        Returns:
+            str or None: The full path of the recording file, or None if start failed.
+
+        Raises:
+            RuntimeError: If recording is already in progress or no frame is available.
+        """
+        if not 1.0 <= fps <= 60.0:
+            raise ValueError("FPS must be between 1.0 and 60.0")
+
+        with self._recording_lock:
+            if self._recording:
+                raise RuntimeError("Recording is already in progress")
+
+            # Check if we have a frame to determine video properties
+            current_frame = self.read()
+            if current_frame is None:
+                raise RuntimeError("No frame available to start recording")
+
+            # Create directory if it doesn't exist
+            try:
+                os.makedirs(directory, exist_ok=True)
+            except OSError as e:
+                logger.error(
+                    "Failed to create recording directory '%s': %s", directory, e
+                )
+                return None
+
+            # Generate filename if not provided
+            if filename is None:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                url_parts = self.rtsp_url.split("/")
+                camera_id = url_parts[-1] if url_parts[-1] else "camera"
+                camera_id = "".join(
+                    c for c in camera_id if c.isalnum() or c in ("-", "_")
+                )
+                filename = f"{camera_id}_{timestamp}.avi"
+
+            # Ensure filename has proper extension
+            if not any(
+                filename.lower().endswith(ext) for ext in [".avi", ".mp4", ".mov"]
+            ):
+                filename += ".avi"
+
+            # Full path for the recording
+            self._current_recording_path = os.path.join(directory, filename)
+
+            # Get frame dimensions
+            height, width = current_frame.shape[:2]
+
+            # Define the codec and create VideoWriter object
+            fourcc = cv2.VideoWriter_fourcc(*codec)
+            self._video_writer = cv2.VideoWriter(
+                self._current_recording_path, fourcc, fps, (width, height)
+            )
+
+            if not self._video_writer.isOpened():
+                logger.error("Failed to open video writer for recording")
+                self._video_writer = None
+                return None
+
+            self._recording = True
+            self._recording_start_time = datetime.now()
+
+            # Schedule automatic stop if max_duration is specified
+            if max_duration is not None:
+
+                def auto_stop():
+                    time.sleep(max_duration)
+                    if self._recording:
+                        self.stop_recording()
+                        logger.info(
+                            "Recording automatically stopped after %d seconds",
+                            max_duration,
+                        )
+
+                auto_stop_thread = threading.Thread(target=auto_stop)
+                auto_stop_thread.daemon = True
+                auto_stop_thread.start()
+
+            logger.info("Recording started: %s", self._current_recording_path)
+            return self._current_recording_path
+
+    def stop_recording(self) -> Optional[Dict[str, Union[str, float]]]:
+        """Stop the current recording.
+
+        Returns:
+            dict or None: Recording information containing:
+                - 'filepath': Path to the recorded file
+                - 'duration': Recording duration in seconds
+                - 'start_time': Recording start timestamp
+                - 'end_time': Recording end timestamp
+            Returns None if no recording was in progress.
+        """
+        with self._recording_lock:
+            if not self._recording:
+                logger.warning("No recording in progress to stop")
+                return None
+
+            self._recording = False
+
+            # Calculate recording duration
+            end_time = datetime.now()
+            duration = (end_time - self._recording_start_time).total_seconds()
+
+            # Release the video writer
+            if self._video_writer:
+                self._video_writer.release()
+                self._video_writer = None
+
+            recording_info = {
+                "filepath": self._current_recording_path,
+                "duration": duration,
+                "start_time": self._recording_start_time.isoformat(),
+                "end_time": end_time.isoformat(),
+            }
+
+            logger.info(
+                "Recording stopped: %s (Duration: %.2f seconds)",
+                self._current_recording_path,
+                duration,
+            )
+
+            self._current_recording_path = None
+            self._recording_start_time = None
+
+            return recording_info
+
+    def is_recording(self) -> bool:
+        """Check if recording is currently active.
+
+        Returns:
+            bool: True if recording is in progress, False otherwise.
+        """
+        return self._recording
+
+    def get_recording_info(self) -> Optional[Dict[str, Union[str, float]]]:
+        """Get information about the current recording.
+
+        Returns:
+            dict or None: Current recording information containing:
+                - 'filepath': Path to the recording file
+                - 'duration': Current recording duration in seconds
+                - 'start_time': Recording start timestamp
+            Returns None if no recording is in progress.
+        """
+        if not self._recording or self._recording_start_time is None:
+            return None
+
+        current_duration = (datetime.now() - self._recording_start_time).total_seconds()
+
+        return {
+            "filepath": self._current_recording_path,
+            "duration": current_duration,
+            "start_time": self._recording_start_time.isoformat(),
+        }
+
+    # endregion
+
+    def get_status(self) -> Dict[str, Union[bool, int]]:
+        """Get detailed status information about the stream.
+
+        Returns:
+            dict: A dictionary containing detailed status information with keys:
+                - 'running': Whether the stream is not stopped
+                - 'thread_alive': Whether the background thread is alive
+                - 'cap_opened': Whether the video capture is open
+                - 'reconnect_count': Number of reconnection attempts
+                - 'has_frame': Whether a frame is currently available
+                - 'recording': Whether recording is active
+                - 'recording_duration': Current recording duration (if recording)
+        """
+        status = {
+            "running": not self._stopped,
+            "thread_alive": self._thread is not None and self._thread.is_alive(),
+            "cap_opened": self._cap is not None and self._cap.isOpened(),
+            "reconnect_count": self._reconnect_count,
+            "has_frame": self._frame is not None,
+            "recording": self._recording,
+            "healthy": self.is_running(),
+        }
+
+        # Add recording duration if currently recording
+        if self._recording and self._recording_start_time:
+            duration = (datetime.now() - self._recording_start_time).total_seconds()
+            status["recording_duration"] = duration
+
+        return status
+
     def _connect(self) -> bool:
         """Establish connection to the RTSP stream.
 
@@ -236,8 +492,8 @@ class RTSPVideoStream:
             self._cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
 
             # Configure timeout settings to prevent hanging
-            self._cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 10000)
-            self._cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000)
+            self._cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, self.TIMEOUT_CONNECT)
+            self._cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, self.TIMEOUT_READ)
 
             # Verify that the stream opened successfully
             if not self._cap.isOpened():
@@ -275,6 +531,7 @@ class RTSPVideoStream:
         - Automatic reconnection on stream failures
         - Reconnection attempt limiting
         - Thread-safe frame storage
+        - Recording frames when recording is active
         """
         while not self._stopped:
             # Check if connection is lost or not established
@@ -321,6 +578,15 @@ class RTSPVideoStream:
                     # Successfully read frame - store it thread-safely
                     with self._lock:
                         self._frame = frame
+
+                    # Write frame to recording if active
+                    with self._recording_lock:
+                        if self._recording and self._video_writer is not None:
+                            try:
+                                self._video_writer.write(frame)
+                            except Exception as e:
+                                logger.error("Error writing frame to recording: %s", e)
+
                     self._reconnect_count = 0  # Reset on successful read
                 else:
                     logger.warning("Received invalid frame from stream")
@@ -368,9 +634,22 @@ class RTSPVideoStream:
 if __name__ == "__main__":
     import sys
 
+    # Configure logging to file and console
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(name)10.10s][%(funcName)15.15s][%(levelname)5.5s] %(message)s",
+        handlers=[
+            # Console handler for real-time monitoring
+            logging.StreamHandler(sys.stdout),
+        ],
+    )
+
+    # Set specific log levels for different components
+    logger.setLevel(logging.INFO)
+
     # Ask user to enter RTSP URL instead of hardcoding credentials
-    print("RTSP Video Stream Test")
-    print("=" * 30)
+    print("RTSP Video Stream Test with Recording")
+    print("=" * 40)
 
     # Get RTSP URL from user input
     url = input(
@@ -399,27 +678,49 @@ if __name__ == "__main__":
             if not stream.is_running():
                 raise ConnectionError("Failed to start stream.")
 
-            snapshot_count = 0
-            print("Taking snapshots every 1 second. Press Ctrl+C to stop...")
+            # Start a test recording
+            recording_duration = 10
+            logger.info("Starting %d seconds test recording...", recording_duration)
+            recording_path = stream.start_recording(max_duration=recording_duration)
+            if recording_path:
+                logger.info("Recording to: %s", recording_path)
 
-            while True:
+            while stream.is_recording():
                 try:
-                    # Take snapshot with custom directory structure
-                    file_path = stream.save_snapshot()
+                    # Non-blocking input simulation - in real app you'd use proper input handling
+                    time.sleep(1)
 
-                    if file_path:
-                        snapshot_count += 1
-                        print(f"Snapshot #{snapshot_count}: {file_path}")
+                    rec_info = stream.get_recording_info()
+                    if rec_info:
+                        logger.info("Recording info: %s", rec_info)
 
-                    # Check stream status periodically
-                    if snapshot_count % 10 == 0:  # Every 10 snapshots
-                        status = stream.get_status()
-                        print(f"Stream status: {status}")
+                except ValueError:
+                    logger.error("No frame available, waiting...")
+                    time.sleep(1)
+
+            snapshot_count = 0
+            max_snapshots = 100
+            logger.info("Taking %d snapshots every 1 second...", max_snapshots)
+
+            while snapshot_count < max_snapshots:
+                try:
+                    if stream.is_running():
+                        # Take snapshot with custom directory structure
+                        file_path = stream.save_snapshot()
+
+                        if file_path:
+                            snapshot_count += 1
+                            logger.info("Snapshot #%d: %s", snapshot_count, file_path)
+
+                        # Check stream status periodically
+                        if snapshot_count % 5 == 0:  # Every 5 snapshots
+                            status = stream.get_status()
+                            logger.info("Stream status: %s", status)
 
                     time.sleep(1)
 
                 except ValueError:
-                    print("No frame available, waiting...")
+                    logger.error("No frame available, waiting...")
                     time.sleep(1)
 
     except KeyboardInterrupt:
