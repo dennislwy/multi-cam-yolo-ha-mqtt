@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     max_detection_objects: int = Field(default=10, ge=1, le=100)
     circuit_breaker_max_consecutive_failures: int = Field(default=3, ge=1, le=10)
     circuit_breaker_recovery_minutes: int = Field(default=15, ge=1, le=120)
+    rtsp_target_fps: float = Field(default=5.0, ge=1.0, le=60.0)
 
     # Camera Configuration
     camera_count: int = Field(ge=1)

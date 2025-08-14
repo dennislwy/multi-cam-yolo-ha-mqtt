@@ -79,7 +79,7 @@ class RTSPVideoStream:
     TIMEOUT_CONNECT = 10000
     TIMEOUT_READ = 5000
     DEFAULT_FPS = 10.0
-    MAX_FPS = 15.0
+    MAX_FPS = 30.0
     FRAME_SKIP = 2  # Skip frames to reduce load
 
     def __init__(

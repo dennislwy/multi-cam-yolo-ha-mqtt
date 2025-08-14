@@ -89,7 +89,8 @@ class MultiCameraMonitor:
                 stream = RTSPVideoStream(
                     rtsp_url=rtsp_url,
                     reconnect_delay=self.settings.rtsp_timeout,
-                    max_reconnect_attempts=5,  # Configurable retry limit
+                    max_reconnect_attempts=5,
+                    target_fps=self.settings.rtsp_target_fps,
                 )
 
                 # Start the stream
