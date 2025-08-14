@@ -4,13 +4,13 @@ Main monitor class that orchestrates camera detection and MQTT publishing
 
 import logging
 import time
-from typing import List
+from typing import Dict, List
 
-from camera import CameraHandler
 from config import Settings, load_camera_config
 from detector import YOLODetector
 from mqtt_client import MQTTHandler
 from multi_camera_processor import MultiCameraProcessor
+from stream import RTSPVideoStream
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +55,11 @@ class MultiCameraMonitor:
             logger.error("No cameras configured. Exiting.")
             raise ValueError("No cameras configured")
 
-        # Initialize core components for camera handling, detection, and MQTT communication
-        self.camera_handler = CameraHandler(settings)
+        # Initialize video streams for each camera
+        self.camera_streams: Dict[str, RTSPVideoStream] = {}
+        self._initialize_camera_streams()
+
+        # Initialize core components for detection and MQTT communication
         self.detector = YOLODetector(settings, output_results=self.output_results)
         self.mqtt_handler = MQTTHandler(settings)
 
@@ -72,6 +75,47 @@ class MultiCameraMonitor:
 
         # Validate the complete setup before starting operations
         self._validate_setup()
+
+    def _initialize_camera_streams(self):
+        """Initialize RTSPVideoStream objects for all configured cameras."""
+        logger.info("Initializing camera streams...")
+
+        for camera in self.cameras:
+            camera_id = camera["id"]
+            rtsp_url = camera["rtsp_url"]
+
+            try:
+                # Create RTSPVideoStream with settings-based configuration
+                stream = RTSPVideoStream(
+                    rtsp_url=rtsp_url,
+                    reconnect_delay=self.settings.rtsp_timeout,
+                    max_reconnect_attempts=5,  # Configurable retry limit
+                )
+
+                # Start the stream
+                stream.start()
+                self.camera_streams[camera_id] = stream
+
+                logger.info("Initialized stream for camera '%s'", camera["name"])
+
+            except Exception as e:
+                logger.error(
+                    "Failed to initialize stream for camera '%s': %s", camera["name"], e
+                )
+                # Continue with other cameras even if one fails
+
+    def cleanup_camera_streams(self):
+        """Clean up all camera streams when shutting down."""
+        logger.info("Cleaning up camera streams...")
+
+        for camera_id, stream in self.camera_streams.items():
+            try:
+                stream.stop()
+                logger.debug("Stopped stream for camera ID: %s", camera_id)
+            except Exception as e:
+                logger.error("Error stopping stream for camera ID %s: %s", camera_id, e)
+
+        self.camera_streams.clear()
 
     def _validate_setup(self):
         """Validate the monitor setup by testing connections and model compatibility.
@@ -146,9 +190,18 @@ class MultiCameraMonitor:
         logger.debug("Starting detection cycle for '%s'", camera["name"])
 
         try:
-            # Step 1: Capture frame from camera's RTSP stream
-            frame = self.camera_handler.capture_frame_from_rtsp(camera)
+            # Step 1: Capture frame from camera's RTSP stream using RTSPVideoStream
+            stream = self.camera_streams.get(camera_id)
+            if stream is None or not stream.is_running():
+                logger.error(
+                    "Camera stream for '%s' is not available or running", camera["name"]
+                )
+                self._record_camera_failure(camera_id, camera["name"])
+                return False
+
+            frame = stream.read()
             if frame is None:
+                logger.warning("No frame available from camera '%s'", camera["name"])
                 self._record_camera_failure(camera_id, camera["name"])
                 return False
 
@@ -547,7 +600,7 @@ class MultiCameraMonitor:
 
         # Cleanup all component resources in proper order
         self.mqtt_handler.cleanup()
-        self.camera_handler.cleanup()
+        self.cleanup_camera_streams()  # Updated to use new camera streams
         if self.processor:
             self.processor.cleanup()
 

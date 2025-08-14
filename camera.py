@@ -1,9 +1,13 @@
 """
 Camera operations for RTSP stream handling
+
+DEPRECATED: This module is deprecated and will be removed in a future version.
+Please use RTSPVideoStream from stream.py instead.
 """
 
 import logging
 import time
+import warnings
 from typing import Optional
 
 import cv2
@@ -16,6 +20,10 @@ logger = logging.getLogger(__name__)
 
 class CameraHandler:
     """Handles RTSP camera operations with connection caching and retry logic.
+
+    DEPRECATED: This class is deprecated and will be removed in a future version.
+    Please use RTSPVideoStream from stream.py instead for better performance,
+    thread safety, and additional features like recording and snapshots.
 
     This class manages multiple RTSP camera connections, providing frame capture
     functionality with automatic retry mechanisms and connection validation.
@@ -34,6 +42,12 @@ class CameraHandler:
         Args:
             settings (Settings): Application configuration settings.
         """
+        warnings.warn(
+            "CameraHandler is deprecated and will be removed in a future version. "
+            "Please use RTSPVideoStream from stream.py instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.settings = settings
         self.active_captures = {}  # Cache camera connections by camera_id
 

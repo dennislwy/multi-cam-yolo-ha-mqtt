@@ -8,9 +8,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from camera import CameraHandler
 from config import Settings, load_camera_config
 from detector import YOLODetector
+from stream import RTSPVideoStream
 
 if TYPE_CHECKING:
     from monitor import MultiCameraMonitor
@@ -28,7 +28,6 @@ class MultiCameraProcessor:
         output_results: bool = False,
     ):
         self.settings = settings
-        self.camera_handler = CameraHandler(settings)
         self.detector = YOLODetector(settings, output_results=output_results)
         self._lock = threading.Lock()
         self.cameras = load_camera_config(settings)
@@ -64,9 +63,25 @@ class MultiCameraProcessor:
                 return None
 
         try:
-            # Capture frame
-            frame = self.camera_handler.capture_frame_from_rtsp(camera)
+            # Get frame from monitor's camera streams
+            if not self.monitor or camera_id not in self.monitor.camera_streams:
+                logger.error(
+                    "Camera stream for '%s' not available in monitor", camera["name"]
+                )
+                if self.monitor:
+                    self.monitor._record_camera_failure(camera_id, camera["name"])
+                return None
+
+            stream = self.monitor.camera_streams[camera_id]
+            if not stream.is_running():
+                logger.error("Camera stream for '%s' is not running", camera["name"])
+                if self.monitor:
+                    self.monitor._record_camera_failure(camera_id, camera["name"])
+                return None
+
+            frame = stream.read()
             if frame is None:
+                logger.warning("No frame available from camera '%s'", camera["name"])
                 # Record failure if monitor is available
                 if self.monitor:
                     self.monitor._record_camera_failure(camera_id, camera["name"])
@@ -186,40 +201,41 @@ class MultiCameraProcessor:
 
     def validate_all_cameras(self) -> Dict[str, bool]:
         """
-        Validate all camera connections in parallel
+        Validate all camera connections in parallel using monitor's streams
 
         Returns:
             Dictionary mapping camera IDs to connection status
         """
         results = {}
 
-        with ThreadPoolExecutor(max_workers=len(self.cameras)) as executor:
-            future_to_camera = {
-                executor.submit(
-                    self.camera_handler.validate_camera_connection, camera
-                ): camera
-                for camera in self.cameras
-            }
+        if not self.monitor:
+            logger.warning("No monitor available for camera validation")
+            return {camera["id"]: False for camera in self.cameras}
 
-            for future in as_completed(future_to_camera, timeout=30):
-                camera = future_to_camera[future]
-                try:
-                    is_valid = future.result(timeout=10)
-                    results[camera["id"]] = is_valid
-                    logger.info(
-                        "Camera '%s' validation: %s",
-                        camera["name"],
-                        "OK" if is_valid else "FAILED",
-                    )
-                except Exception as e:
-                    logger.error("Error validating camera '%s': %s", camera["name"], e)
-                    results[camera["id"]] = False
+        # Check each camera stream status
+        for camera in self.cameras:
+            camera_id = camera["id"]
+            stream = self.monitor.camera_streams.get(camera_id)
+
+            if stream is None:
+                logger.warning("No stream found for camera '%s'", camera["name"])
+                results[camera_id] = False
+                continue
+
+            # Check if stream is running and healthy
+            is_valid = stream.is_running()
+            results[camera_id] = is_valid
+
+            if is_valid:
+                logger.info("Camera '%s' validation: PASS", camera["name"])
+            else:
+                logger.warning("Camera '%s' validation: FAIL", camera["name"])
 
         return results
 
     def cleanup(self):
         """Clean up resources"""
-        self.camera_handler.cleanup()
+        # No longer need to cleanup camera_handler since we're using monitor's streams
         logger.info("Multi-camera processor cleaned up")
 
 
