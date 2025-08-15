@@ -1,6 +1,8 @@
 *.pt
 todo*.md
-output/
+output*/
+results/
+snapshots/
 .vscode/
 log/
 
