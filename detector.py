@@ -111,9 +111,11 @@ class YOLODetector:
                 "detections": [],
             }
 
-            # Initialize class counters
+            # Initialize class counters and confidence tracking
+            class_confidences = {}
             for class_name in self.settings.supported_classes:
                 detections[class_name] = 0
+                class_confidences[class_name] = []
 
             for result in results:
                 boxes = result.boxes
@@ -128,6 +130,7 @@ class YOLODetector:
                         if class_name in self.settings.supported_classes:
                             detections[class_name] += 1
                             detections["total_objects"] += 1
+                            class_confidences[class_name].append(confidence)
 
                             # Store detection details
                             coords = box.xyxy[0].tolist()
@@ -139,16 +142,19 @@ class YOLODetector:
                                 }
                             )
 
-            # Create summary string for logging
+            # Create summary string for logging with confidence scores
             summary = []
             for class_name in self.settings.supported_classes:
                 count = detections[class_name]
                 if count > 0:
-                    summary.append(f"{count} {class_name}{'s' if count > 1 else ''}")
+                    confidences = class_confidences[class_name]
+                    conf_str = ", ".join([f"{conf:.2f}" for conf in confidences])
+                    plural = "s" if count > 1 else ""
+                    summary.append(f"{count} {class_name}{plural} ({conf_str})")
 
             summary_text = ", ".join(summary) if summary else "no objects"
             logger.info(
-                "Detection completed for '%s' in %.2fs on %s: %s",
+                "Detection completed for '%s' in %.2fs on '%s': %s",
                 camera["name"],
                 detection_time,
                 self.settings.device,
