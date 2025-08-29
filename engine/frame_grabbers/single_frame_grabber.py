@@ -18,7 +18,11 @@ class SingleFrameGrabber(FrameGrabber):
     """
 
     def __init__(self, source):
-        self._source = source
+        try:
+            src = int(source)
+        except ValueError:
+            src = source
+        self._source = src
 
     def read(self) -> Tuple[bool, Optional[np.ndarray]]:
         try:

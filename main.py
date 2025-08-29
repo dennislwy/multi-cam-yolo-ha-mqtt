@@ -1,18 +1,15 @@
-"""
-Multi-Camera YOLO Object Detection with Home Assistant MQTT Integration
-
-Main entry point for the application
-"""
-
 import argparse
 import logging
 import os
-import shutil
 import sys
 import time
+from datetime import datetime
+from logging import Logger
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
+from typing import Any, Dict, Optional
 
+import cv2
 from dotenv import load_dotenv
 
 # Add the project root to Python path
@@ -20,7 +17,15 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 from config import get_settings
-from monitor import MultiCameraMonitor
+from engine.frame_grabbers import (
+    LockFreeRingBufferFrameGrabber,
+    MultiThreadingFrameGrabber,
+    SimpleFrameGrabber,
+    SingleFrameGrabber,
+)
+from engine.object_detection import ObjectDetection
+
+logger: Logger
 
 
 def setup_logging(settings):
@@ -65,64 +70,137 @@ def setup_logging(settings):
     )
 
 
-def clean_output_folder():
-    """Clean the output folder of any existing files"""
-    output_dir = Path("output")
-    if output_dir.exists():
-        try:
-            shutil.rmtree(output_dir)
-            logger = logging.getLogger(__name__)
-            logger.info("Cleaned output folder")
-        except Exception as e:
-            logger = logging.getLogger(__name__)
-            logger.warning("Failed to clean output folder: %s", e)
+def run(
+    source,
+    model,
+    grabber_type: str = "single",
+    conf: float = 0.6,
+    imgsz: int = 640,
+    show: bool = False,
+):
+    print(f"Using model: {model}")
+    print(f"Using source: {source}")
+    print(f"Using frame grabber: {grabber_type}")
+    print(f"Using confidence threshold: {conf}")
+    print(f"Using image size: {imgsz}")
 
-    # Create the output directory
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Initialize the frame grabber
+    if grabber_type == "single":
+        grabber = SingleFrameGrabber
+    elif grabber_type == "multi":
+        grabber = MultiThreadingFrameGrabber
+    elif grabber_type == "lockfree":
+        grabber = LockFreeRingBufferFrameGrabber
+    else:
+        raise ValueError(f"Unknown grabber type: {grabber_type}")
+
+    # Load object detection model
+    logging.info("Loading model...")
+    od = ObjectDetection(model)
+    logging.info("Model loaded...")
+    class_names = od.classes
+
+    # Initialize the frame grabber with the given source and target FPS
+    cap = grabber(source=source)
+
+    try:
+        # read a frame every 60s, then perform object detection
+        while True:
+            logging.debug("Grabbing a frame...")
+            ret, frame = cap.read()
+            if not ret:
+                logger.error("Failed to grab frame")
+                break
+
+            # Display the frame in a window
+            if show:
+                cv2.imshow(
+                    "Object Detection",
+                    frame,
+                )
+
+            logging.debug("Running detection...")
+            start_time = time.time()
+
+            # Perform object detection
+            results = od.detect(frame, imgsz=imgsz, conf=conf)
+
+            detection_time = time.time() - start_time
+
+            # Process the results (e.g., display them, send them over a network, etc.)
+            process_results(results, class_names, detection_time)
+
+            # sleep 60s
+            # logging.debug("Sleeping for 60 seconds before next frame...")
+            time.sleep(60)
+
+    finally:
+        logging.debug("Releasing resources...")
+        cap.release()
+        if show:
+            cv2.destroyAllWindows()
+
+
+def process_results(
+    results, class_names: Dict[int, str], detection_time: float
+) -> Optional[Dict[str, Any]]:
+    # init detections
+    detections = {
+        "camera_id": "cam1",  # camera["id"],
+        "camera_name": "oreo",  # camera["name"],
+        "timestamp": datetime.now().isoformat(),
+        "total_objects": 0,
+        "detections": [],
+    }
+
+    class_names_list = list(class_names.values())
+
+    # Initialize class counters and confidence tracking
+    class_confidences = {}
+    for class_name in class_names_list:
+        detections[class_name] = 0
+        class_confidences[class_name] = []
+
+    bboxes, class_ids, scores = results
+    for bbox, class_id, score in zip(bboxes, class_ids, scores):
+        # Get class name
+        class_name = class_names[class_id]
+        confidence = score
+        detections[class_name] += 1
+        detections["total_objects"] += 1
+        class_confidences[class_name].append(confidence)
+
+        # Store detection details
+        detections["detections"].append(
+            {
+                "class": class_name,
+                "confidence": round(confidence, 2),
+                "bbox": [round(x, 1) for x in bbox],
+            }
+        )
+
+    # Create summary string for logging with confidence scores
+    summary = []
+    for class_name in class_names_list:
+        count = detections[class_name]
+        if count > 0:
+            confidences = class_confidences[class_name]
+            conf_str = ", ".join([f"{conf:.2f}" for conf in confidences])
+            plural = "s" if count > 1 else ""
+            summary.append(f"{count} {class_name}{plural} ({conf_str})")
+
+    summary_text = ", ".join(summary) if summary else "no objects"
+    logger.info(
+        "Detection completed for in %.2fs: %s",
+        detection_time,
+        summary_text,
+    )
+
+    return detections
 
 
 def main():
-    """Main application entry point"""
-    parser = argparse.ArgumentParser(
-        description="Multi-Camera YOLO Detection Monitor for Home Assistant",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  %(prog)s                           # Run continuous monitoring (default)
-  %(prog)s --single                  # Run single detection cycle (for cron)
-  %(prog)s --test                    # Test all cameras once
-  %(prog)s --test --camera "Front Door"  # Test specific camera
-  %(prog)s --validate                # Validate camera connections
-  %(prog)s --status                  # Show system status
-        """,
-    )
-
-    parser.add_argument("--test", action="store_true", help="Run single detection test")
-    parser.add_argument(
-        "--single",
-        "-s",
-        action="store_true",
-        help="Run single detection cycle (for cron or testing)",
-    )
-    parser.add_argument(
-        "--camera", type=str, help="Test specific camera by name (use with --test)"
-    )
-    parser.add_argument(
-        "--validate", action="store_true", help="Validate camera connections"
-    )
-    parser.add_argument("--status", action="store_true", help="Show system status")
-    parser.add_argument(
-        "--setup-ha", action="store_true", help="Setup Home Assistant discovery only"
-    )
-    parser.add_argument(
-        "--output-results",
-        "-o",
-        action="store_true",
-        help="Save detected result images to 'output' folder when objects are detected",
-    )
-
-    args = parser.parse_args()
-
+    global logger
     # Check if .env file exists
     if not os.path.exists(".env"):
         print("❌ .env file not found.")
@@ -142,137 +220,35 @@ Examples:
         print(f"❌ Configuration error: {e}")
         return 1
 
-    # Clean output folder if --output-results flag is used
-    if args.output_results:
-        clean_output_folder()
-        logger.info(
-            "Output results mode enabled - images will be saved to 'output' folder"
+    # args = parse_args()
+    # run(args.source, args.model, args.grabber, args.conf, args.imgsz, args.target_fps)
+
+    source = "rtsp://administrator:tapo814@192.168.0.5:554/stream1"  # oreo
+    # source = "rtsp://administrator:tapo814@192.168.0.4:554/stream1" # sofa
+    # model = "yolo11n.pt"
+    model = settings.yolo_model_path
+    conf = 0.6
+    imgsz = 640
+    show = False
+
+    try:
+        run(
+            source=source,
+            model=model,
+            grabber_type="single",
+            conf=conf,
+            imgsz=imgsz,
+            show=show,
         )
-
-    # Initialize monitor
-    try:
-        monitor = MultiCameraMonitor(settings, output_results=args.output_results)
-        logger.info("Monitor initialized with %s cameras", len(monitor.cameras))
-
-    except Exception as e:
-        logger.error("Failed to initialize monitor: %s", e)
-        return 1
-
-    try:
-        # Handle different command modes
-        if args.status:
-            # Show system status
-            status = monitor.get_system_status()
-            print("\n📊 System Status:")
-            print(f"  Cameras configured: {status['cameras_configured']}")
-            print(f"  Camera names: {', '.join(status['camera_names'])}")
-            print(f"  MQTT connected: {'✓' if status['mqtt_connected'] else '✗'}")
-            print(f"  Model: {status['model_info'].get('model_path', 'Unknown')}")
-            print(
-                f"  Supported classes: {', '.join(status['settings']['supported_classes'])}"
-            )
-            print(
-                f"  Confidence threshold: {status['settings']['confidence_threshold']}"
-            )
-            return 0
-
-        elif args.validate:
-            # Validate camera connections
-            results = monitor.validate_all_cameras()
-            print("\n📹 Camera Validation Results:")
-            for result in results:
-                status_icon = "✓" if result["valid"] else "✗"
-                print(f"  {status_icon} {result['camera']}")
-
-            failed_cameras = [r for r in results if not r["valid"]]
-            if failed_cameras:
-                print(f"\n⚠️  {len(failed_cameras)} camera(s) failed connection test")
-                return 1
-            else:
-                print(f"\n✅ All {len(results)} cameras validated successfully")
-                return 0
-
-        elif args.setup_ha:
-            # Setup Home Assistant discovery only
-            success = monitor.setup_homeassistant_discovery()
-            if success:
-                print("✅ Home Assistant discovery setup completed")
-                return 0
-            else:
-                print("❌ Home Assistant discovery setup failed")
-                return 1
-
-        elif args.test:
-            if args.camera:
-                # Test specific camera
-                success = monitor.run_single_camera_test(args.camera)
-            else:
-                # Test all cameras
-                logger.info("Running single detection test for all cameras")
-                success = monitor.run_all_cameras_detection_cycle()
-
-            if success:
-                print("✅ Test completed successfully")
-                return 0
-            else:
-                print("❌ Test failed")
-                return 1
-
-        elif args.single:
-            # Single detection cycle (for cron job or testing)
-            logger.info("Running single detection cycle")
-            success = monitor.run_all_cameras_detection_cycle()
-            return 0 if success else 1
-
-        else:
-            # Default: continuous monitoring mode
-            logger.info("Starting continuous monitoring mode")
-            print("🔄 Running continuous monitoring... (Press Ctrl+C to stop)")
-
-            try:
-                while True:
-                    cycle_start = time.time()
-                    monitor.run_all_cameras_detection_cycle()
-                    cycle_time = time.time() - cycle_start
-
-                    if cycle_time > 60:  # Warn if cycle takes too long
-                        logger.warning(
-                            "Detection cycle took %.2fs - consider checking camera connections",
-                            cycle_time,
-                        )
-
-                    logger.info(
-                        "Cycle completed in %.2fs, waiting %ds for next cycle",
-                        cycle_time,
-                        settings.cycle_delay,
-                    )
-                    print(
-                        f"⏳ Cycle completed in {cycle_time:.2f}s, waiting {settings.cycle_delay}s for next cycle"
-                    )
-
-                    time.sleep(settings.cycle_delay)
-            except KeyboardInterrupt:
-                logger.info("Continuous monitoring stopped by user")
-                print("\n⏹️  Monitoring stopped")
-                return 0
-
     except KeyboardInterrupt:
         logger.info("Interrupted by user")
         print("\nOperation cancelled")
-        return 0
-
     except Exception as e:
         logger.error("Unexpected error: %s", e)
         print("❌ Unexpected error: %s", e)
-        return 1
-
-    finally:
-        # Cleanup resources
-        try:
-            monitor.cleanup()
-        except Exception:
-            pass
+        sys.exit(1)
+    sys.exit(0)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

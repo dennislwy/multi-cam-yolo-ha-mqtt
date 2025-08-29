@@ -11,9 +11,13 @@ from .frame_grabber import FrameGrabber
 
 class MultiThreadingFrameGrabber(FrameGrabber):
     def __init__(
-        self, source: str, buffer_size: int = 3, target_fps: Optional[float] = None
+        self, source, buffer_size: int = 3, target_fps: Optional[float] = None
     ):
-        self._source = source
+        try:
+            src = int(source)
+        except ValueError:
+            src = source
+        self._source = src
         self._cap = cv2.VideoCapture(self._source)
         self._frame_queue = queue.Queue(maxsize=buffer_size)
         self._frame_count = 0

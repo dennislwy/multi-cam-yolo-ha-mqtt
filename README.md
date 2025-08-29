@@ -133,23 +133,24 @@ Add the following content:
 
 ```ini
 [Unit]
-Description=Multi-Camera YOLO Object Detection Monitor
+Description=Multi-Camera YOLO Detection Monitor
 After=network.target
-Wants=network.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=pi
 Group=pi
 WorkingDirectory=/home/pi/multi-cam-yolo-ha-mqtt
-ExecStart=/usr/bin/python3 /home/pi/multi-cam-yolo-ha-mqtt/main.py --continuous
+Environment=PATH=/home/pi/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/pi/.local/bin/poetry run python main.py
 Restart=always
-RestartSec=30
+RestartSec=10
 StandardOutput=journal
 StandardError=journal
 
-# Environment variables (optional - can also use .env file)
-Environment=PYTHONPATH=/home/pi/multi-cam-yolo-ha-mqtt
+# Environment variables (optional, can also use .env file)
+Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target

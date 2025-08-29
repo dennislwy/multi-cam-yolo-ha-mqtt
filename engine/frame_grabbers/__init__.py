@@ -1,3 +1,4 @@
+from .lock_free_ringbuffer_frame_grabber import LockFreeRingBufferFrameGrabber
 from .multi_threading_frame_grabber import MultiThreadingFrameGrabber
 from .simple_frame_grabber import SimpleFrameGrabber
 from .single_frame_grabber import SingleFrameGrabber

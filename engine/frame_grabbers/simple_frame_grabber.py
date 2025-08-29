@@ -19,7 +19,11 @@ class SimpleFrameGrabber(FrameGrabber):
     """
 
     def __init__(self, source, target_fps: Optional[float] = None):
-        self._source = source
+        try:
+            src = int(source)
+        except ValueError:
+            src = source
+        self._source = src
         self._cap = cv2.VideoCapture(self._source)
         self._last_frame_time = None
         self._target_fps = target_fps
