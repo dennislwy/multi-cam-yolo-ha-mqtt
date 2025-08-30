@@ -28,6 +28,15 @@ from engine.object_detection import ObjectDetection
 logger: Logger
 settings = get_settings()
 
+# Add a global flag
+should_exit = False
+
+
+def signal_handler(signum, frame):
+    global should_exit
+    logger.info(f"Received signal {signum}, shutting down gracefully...")
+    should_exit = True
+
 
 def setup_logging(settings):
     """Setup logging configuration with daily rotation at midnight.
@@ -110,7 +119,7 @@ def run(
 
     try:
         # read a frame every 60s, then perform object detection
-        while True:
+        while not should_exit:
             grab_start_time = time.time()
             logging.debug("Grabbing a frame...")
             ret, frame = cap.read()
@@ -136,6 +145,9 @@ def run(
                     "Object Detection",
                     frame,
                 )
+
+            if should_exit:
+                break
 
             logging.debug("Running detection...")
             detect_start_time = time.time()
@@ -220,6 +232,12 @@ def process_results(
 
 def main():
     global logger
+    global should_exit
+
+    # Register signal handlers
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+
     # Check if .env file exists
     if not os.path.exists(".env"):
         print("❌ .env file not found.")
