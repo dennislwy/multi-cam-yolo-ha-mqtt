@@ -79,11 +79,11 @@ def run(
     imgsz: int = 640,
     show: bool = False,
 ):
-    print(f"Using model: {model}")
-    print(f"Using source: {source}")
-    print(f"Using frame grabber: {grabber_type}")
-    print(f"Using confidence threshold: {conf}")
-    print(f"Using image size: {imgsz}")
+    logging.info("Using model: %s", model)
+    logging.info("Using source: %s", source)
+    logging.info("Using frame grabber: %s", grabber_type)
+    logging.info("Using confidence threshold: %f", conf)
+    logging.info("Using image size: %d", imgsz)
 
     # Initialize the frame grabber
     if grabber_type == "single":
@@ -97,8 +97,9 @@ def run(
 
     # Load object detection model
     logging.info("Loading model '%s'", model)
+    model_load_start_time = time.time()
     od = ObjectDetection(model)
-    logging.info("Model loaded...")
+    logging.info("Model loaded in %.2fs", time.time() - model_load_start_time)
     class_names = od.classes
 
     cycle_delay = settings.cycle_delay
@@ -110,14 +111,16 @@ def run(
     try:
         # read a frame every 60s, then perform object detection
         while True:
-            grab_time = time.time()
+            grab_start_time = time.time()
             logging.debug("Grabbing a frame...")
             ret, frame = cap.read()
+            logging.info("Frame grabbed in %.2fs", time.time() - grab_start_time)
+
             if not ret:
                 logger.error("Failed to grab frame")
 
                 # Sleep for the remaining cycle time
-                delay = max(0, cycle_delay - (time.time() - grab_time))
+                delay = max(0, cycle_delay - (time.time() - grab_start_time))
                 logger.debug("Sleeping for the remaining %.2fs", delay)
                 time.sleep(delay)
 
@@ -134,26 +137,26 @@ def run(
                 )
 
             logging.debug("Running detection...")
-            start_time = time.time()
+            detect_start_time = time.time()
 
             # Perform object detection
             results = od.detect(frame, imgsz=imgsz, conf=conf)
 
-            detection_time = time.time() - start_time
+            detection_time = time.time() - detect_start_time
 
             # Process the results (e.g., display them, send them over a network, etc.)
             process_results(results, class_names, detection_time)
 
             # Sleep for the remaining cycle time
-            delay = max(0, cycle_delay - (time.time() - grab_time))
+            delay = max(0, cycle_delay - (time.time() - grab_start_time))
             logger.debug("Sleeping for the remaining %.2fs", delay)
             time.sleep(delay)
 
     finally:
         logging.info("Releasing resources...")
-        cap.release()
         if show:
             cv2.destroyAllWindows()
+        cap.release()
 
 
 def process_results(
@@ -257,6 +260,7 @@ def main():
     except KeyboardInterrupt:
         logger.info("Interrupted by user")
         print("\nOperation cancelled")
+
     except Exception as e:
         logger.error("Unexpected error: %s", e)
         print("❌ Unexpected error: %s", e)
