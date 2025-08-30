@@ -1,4 +1,4 @@
 #!/bin/bash
 
-# Stop the camera-monitor service
+# Stop the service
 sudo systemctl stop camera-monitor.service

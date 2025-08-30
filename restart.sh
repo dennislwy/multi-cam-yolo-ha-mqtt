@@ -1,4 +1,4 @@
 #!/bin/bash
 
-# Restart the camera-monitor service
+# Restart the service
 sudo systemctl restart camera-monitor.service

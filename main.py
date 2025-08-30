@@ -135,7 +135,7 @@ def run(
             time.sleep(60)
 
     finally:
-        logging.debug("Releasing resources...")
+        logging.info("Releasing resources...")
         cap.release()
         if show:
             cv2.destroyAllWindows()
