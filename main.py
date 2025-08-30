@@ -26,6 +26,7 @@ from engine.frame_grabbers import (
 from engine.object_detection import ObjectDetection
 
 logger: Logger
+settings = get_settings()
 
 
 def setup_logging(settings):
@@ -95,10 +96,12 @@ def run(
         raise ValueError(f"Unknown grabber type: {grabber_type}")
 
     # Load object detection model
-    logging.info("Loading model...")
+    logging.info("Loading model '%s'", model)
     od = ObjectDetection(model)
     logging.info("Model loaded...")
     class_names = od.classes
+
+    cycle_delay = settings.cycle_delay
 
     # Initialize the frame grabber with the given source and target FPS
     cap = grabber(source=source)
@@ -106,11 +109,18 @@ def run(
     try:
         # read a frame every 60s, then perform object detection
         while True:
+            grab_time = time.time()
             logging.debug("Grabbing a frame...")
             ret, frame = cap.read()
             if not ret:
                 logger.error("Failed to grab frame")
-                break
+
+                # Sleep for the remaining cycle time
+                time.sleep(max(0, cycle_delay - (time.time() - grab_time)))
+
+                # Re-initialize the frame grabber
+                cap = grabber(source=source)
+                continue
 
             # Display the frame in a window
             if show:
@@ -130,9 +140,8 @@ def run(
             # Process the results (e.g., display them, send them over a network, etc.)
             process_results(results, class_names, detection_time)
 
-            # sleep 60s
-            # logging.debug("Sleeping for 60 seconds before next frame...")
-            time.sleep(60)
+            # Sleep for the remaining cycle time
+            time.sleep(max(0, cycle_delay - (time.time() - grab_time)))
 
     finally:
         logging.info("Releasing resources...")
@@ -208,7 +217,6 @@ def main():
 
     # Load settings and setup logging
     try:
-        settings = get_settings()
         load_dotenv()
         setup_logging(settings)
         logger = logging.getLogger(__name__)
@@ -224,7 +232,7 @@ def main():
     # run(args.source, args.model, args.grabber, args.conf, args.imgsz, args.target_fps)
 
     source = "rtsp://administrator:tapo814@192.168.0.5:554/stream1"  # oreo
-    # source = "rtsp://administrator:tapo814@192.168.0.4:554/stream1" # sofa
+    # source = "rtsp://administrator:tapo814@192.168.0.4:554/stream1"  # sofa
     # model = "yolo11n.pt"
     model = settings.yolo_model_path
     conf = 0.6

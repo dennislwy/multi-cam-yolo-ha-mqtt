@@ -25,14 +25,18 @@ class SingleFrameGrabber(FrameGrabber):
         self._source = src
 
     def read(self) -> Tuple[bool, Optional[np.ndarray]]:
+        cap: Optional[cv2.VideoCapture] = None
+
         try:
             cap = cv2.VideoCapture(self._source)
             ret, frame = cap.read() if cap.isOpened() else (False, None)
-            cap.release()
             return ret, frame
         except Exception as e:
             print(f"Error occurred while reading frame: {e}")
             return False, None
+        finally:
+            if cap is not None:
+                cap.release()
 
     def release(self) -> None:
         pass
