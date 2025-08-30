@@ -117,11 +117,11 @@ def run(
             logging.info("Frame grabbed in %.2fs", time.time() - grab_start_time)
 
             if not ret:
-                logger.error("Failed to grab frame")
-
                 # Sleep for the remaining cycle time
                 delay = max(0, cycle_delay - (time.time() - grab_start_time))
-                logger.debug("Sleeping for the remaining %.2fs", delay)
+                logger.error(
+                    "Failed to grab frame, sleeping for the remaining %.2fs", delay
+                )
                 time.sleep(delay)
 
                 # Re-initialize the frame grabber
