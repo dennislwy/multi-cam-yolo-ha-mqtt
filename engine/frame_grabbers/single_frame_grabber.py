@@ -1,9 +1,12 @@
+import logging
 from typing import Optional, Tuple
 
 import cv2
 import numpy as np
 
 from .frame_grabber import FrameGrabber
+
+logger = logging.getLogger(__name__)
 
 
 class SingleFrameGrabber(FrameGrabber):
@@ -32,7 +35,7 @@ class SingleFrameGrabber(FrameGrabber):
             ret, frame = cap.read() if cap.isOpened() else (False, None)
             return ret, frame
         except Exception as e:
-            print(f"Error occurred while reading frame: {e}")
+            logging.error("Error occurred while reading frame: %s", e)
             return False, None
         finally:
             if cap is not None:

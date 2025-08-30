@@ -114,7 +114,6 @@ def run(
             grab_start_time = time.time()
             logging.debug("Grabbing a frame...")
             ret, frame = cap.read()
-            logging.info("Frame grabbed in %.2fs", time.time() - grab_start_time)
 
             if not ret:
                 # Sleep for the remaining cycle time
@@ -128,6 +127,8 @@ def run(
                 logging.info("Initializing frame grabber...")
                 cap = grabber(source=source)
                 continue
+
+            logging.info("Frame grabbed in %.2fs", time.time() - grab_start_time)
 
             # Display the frame in a window
             if show:
