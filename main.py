@@ -103,7 +103,8 @@ def run(
 
     cycle_delay = settings.cycle_delay
 
-    # Initialize the frame grabber with the given source and target FPS
+    # Initialize the frame grabber with the given source
+    logging.info("Initializing frame grabber...")
     cap = grabber(source=source)
 
     try:
@@ -116,9 +117,12 @@ def run(
                 logger.error("Failed to grab frame")
 
                 # Sleep for the remaining cycle time
-                time.sleep(max(0, cycle_delay - (time.time() - grab_time)))
+                delay = max(0, cycle_delay - (time.time() - grab_time))
+                logger.debug("Sleeping for the remaining %.2fs", delay)
+                time.sleep(delay)
 
                 # Re-initialize the frame grabber
+                logging.info("Initializing frame grabber...")
                 cap = grabber(source=source)
                 continue
 
@@ -141,7 +145,9 @@ def run(
             process_results(results, class_names, detection_time)
 
             # Sleep for the remaining cycle time
-            time.sleep(max(0, cycle_delay - (time.time() - grab_time)))
+            delay = max(0, cycle_delay - (time.time() - grab_time))
+            logger.debug("Sleeping for the remaining %.2fs", delay)
+            time.sleep(delay)
 
     finally:
         logging.info("Releasing resources...")
